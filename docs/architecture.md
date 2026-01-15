@@ -1,0 +1,374 @@
+# PIL Protocol Architecture
+
+## Overview
+
+The Privacy Interoperability Layer (PIL) is designed as a modular middleware protocol that enables private cross-chain state transfers and ZK proof verification. This document describes the technical architecture, component interactions, and security model.
+
+## Core Design Principles
+
+1. **Privacy-First**: All state transfers are encrypted; only commitments are on-chain
+2. **Proof Agnostic**: Support multiple ZK proof systems (Groth16, PLONK, FRI)
+3. **Chain Agnostic**: Work across EVM chains with planned support for non-EVM
+4. **Decentralized**: No single point of failure or trust
+5. **Composable**: Modular design for easy integration
+
+---
+
+## System Components
+
+### 1. Confidential State Layer
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              ConfidentialStateContainer                  │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │ Encrypted   │  │  Pedersen   │  │  Nullifier  │     │
+│  │   State     │  │ Commitment  │  │  Registry   │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+│                                                         │
+│  Storage: encryptedState[commitment] → EncryptedState   │
+│  Index:   nullifiers[nullifier] → used (bool)           │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### State Structure
+
+```solidity
+struct EncryptedState {
+    bytes encryptedState;    // AES-256-GCM ciphertext
+    bytes32 commitment;      // Pedersen(state, blinding)
+    bytes32 nullifier;       // Hash(privateKey, commitment)
+    address owner;           // Current owner address
+}
+```
+
+#### State Lifecycle
+
+1. **Creation**: User encrypts state locally, generates commitment and nullifier
+2. **Registration**: Submit encrypted state + ZK proof to container
+3. **Transfer**: Prove ownership, create new commitment, reveal old nullifier
+4. **Consumption**: Spend state by revealing nullifier (prevents double-spend)
+
+### 2. Proof Translation Layer
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Proof Verifiers                        │
+├─────────────┬─────────────┬─────────────┬───────────────┤
+│   Groth16   │    PLONK    │     FRI     │    Native     │
+│  BLS12-381  │   BN254     │  (Stark)    │   Adapter     │
+├─────────────┴─────────────┴─────────────┴───────────────┤
+│              Universal Verifier Interface                │
+│  verifyProof(circuitId, proof, publicInputs) → bool     │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Groth16 Verifier (BLS12-381)
+
+The main verifier uses the BLS12-381 curve for maximum security:
+
+```
+Security Level: 128-bit (classical), 64-bit (quantum)
+Field Size: ~381 bits
+Proof Size: 3 group elements (~384 bytes)
+Verification: ~3ms (with precompiles)
+```
+
+#### Verification Key Structure
+
+```solidity
+struct VerificationKey {
+    G1Point alpha;           // α ∈ G₁
+    G2Point beta;            // β ∈ G₂
+    G2Point gamma;           // γ ∈ G₂
+    G2Point delta;           // δ ∈ G₂
+    G1Point[] ic;            // Input commitments
+}
+```
+
+#### Pairing Check
+
+The verification performs the pairing equation:
+```
+e(A, B) = e(α, β) · e(∑ᵢ aᵢ·ICᵢ, γ) · e(C, δ)
+```
+
+### 3. Relayer Network Layer
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  CrossChainProofHub                      │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────────────┐   │
+│  │              Relayer Registry                    │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐           │   │
+│  │  │Relayer 1│ │Relayer 2│ │Relayer N│           │   │
+│  │  │ Stake:X │ │ Stake:Y │ │ Stake:Z │           │   │
+│  │  │ Rep: 95%│ │ Rep: 98%│ │ Rep: 92%│           │   │
+│  │  └─────────┘ └─────────┘ └─────────┘           │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │              Proof Batch Queue                   │   │
+│  │  [Batch 1: 50 proofs] → [Batch 2: 30 proofs]    │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  Functions:                                             │
+│  - registerRelayer(stake)                               │
+│  - createBatch(targetChain)                             │
+│  - submitProof(batchId, proof)                          │
+│  - finalizeBatch(batchId, merkleRoot)                   │
+│  - slashRelayer(relayer, evidence)                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Relayer Economics
+
+| Parameter | Value |
+|-----------|-------|
+| Minimum Stake | 10 ETH |
+| Slashing Penalty | Up to 100% |
+| Withdrawal Cooldown | 7 days |
+| Batch Fee | 0.1% of value |
+
+#### Privacy Features
+
+1. **Mixnet Routing**: Multi-hop encrypted routing
+2. **Decoy Traffic**: Fake transactions to obscure patterns
+3. **Timing Obfuscation**: Random delays to prevent correlation
+4. **Onion Encryption**: Layered encryption for each hop
+
+### 4. Execution Sandbox Layer
+
+#### Atomic Swaps
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   PILAtomicSwap                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Swap Lifecycle:                                        │
+│                                                         │
+│  1. Initiate    2. Lock        3. Redeem/Refund        │
+│  ┌────────┐     ┌────────┐     ┌────────┐              │
+│  │ Alice  │────>│ HTLC   │────>│  Bob   │              │
+│  │initiates    │ locked │     │ redeems │              │
+│  └────────┘     └────────┘     └────────┘              │
+│       │              │              │                   │
+│       v              v              v                   │
+│  Hash(secret)   timelock      reveal secret            │
+│                 expires                                 │
+│                    │                                    │
+│                    v                                    │
+│               Alice refunds                             │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Compliance Module
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   PILCompliance                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  KYC Tiers:                                             │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ Tier 1: Basic (email, phone)      │ $1k/day    │   │
+│  │ Tier 2: Enhanced (ID, address)    │ $10k/day   │   │
+│  │ Tier 3: Institutional (full KYC)  │ Unlimited  │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                                         │
+│  Features:                                              │
+│  - Zero-knowledge KYC proofs                            │
+│  - Sanctions screening                                  │
+│  - Audit trail generation                               │
+│  - Selective disclosure                                 │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Cross-Chain Message Flow
+
+```
+Chain A                    Relayer Network                    Chain B
+────────                   ───────────────                    ────────
+    │                            │                                │
+    │  1. Register State         │                                │
+    │  ─────────────────>        │                                │
+    │  [encrypted, commitment,   │                                │
+    │   nullifier, proof]        │                                │
+    │                            │                                │
+    │                            │  2. Batch & Relay              │
+    │                            │  ─────────────────────>        │
+    │                            │  [merkle_root, proofs]         │
+    │                            │                                │
+    │                            │                                │  3. Verify & Store
+    │                            │                                │  ────────────────
+    │                            │                                │  [verify proofs,
+    │                            │                                │   store states]
+    │                            │                                │
+    │                            │  4. Confirmation               │
+    │                            │  <─────────────────────        │
+    │                            │  [tx_hash, block]              │
+    │                            │                                │
+    │  5. Update Nullifier       │                                │
+    │  <─────────────────        │                                │
+    │  [cross-chain nullifier]   │                                │
+    │                            │                                │
+```
+
+---
+
+## Security Model
+
+### Threat Model
+
+| Threat | Mitigation |
+|--------|------------|
+| State theft | ZK proof required for transfers |
+| Double-spending | Nullifier registry with cross-chain sync |
+| Replay attacks | Unique nullifiers per state |
+| Relayer censorship | Multiple independent relayers |
+| Relayer collusion | Economic slashing, reputation |
+| Traffic analysis | Mixnet routing, decoy traffic |
+| Front-running | Commit-reveal schemes |
+
+### Cryptographic Assumptions
+
+1. **Discrete Log (DL)**: BLS12-381 curve security
+2. **Computational Diffie-Hellman (CDH)**: Key exchange security
+3. **Random Oracle Model**: Hash function security
+4. **Knowledge of Exponent (KEA)**: ZK proof soundness
+
+### Formal Security Properties
+
+1. **Soundness**: Invalid proofs cannot pass verification
+2. **Zero-Knowledge**: Proofs reveal nothing beyond validity
+3. **Unlinkability**: Cannot link sender/receiver across chains
+4. **Forward Secrecy**: Past states remain private if keys compromised
+
+---
+
+## Gas Optimization
+
+### Storage Optimization
+
+```solidity
+// Before: 3 storage slots
+struct StateOld {
+    bytes32 commitment;    // slot 0
+    address owner;         // slot 1
+    uint256 timestamp;     // slot 2
+}
+
+// After: 2 storage slots (packed)
+struct StateOptimized {
+    bytes32 commitment;    // slot 0
+    address owner;         // slot 1 (160 bits)
+    uint48 timestamp;      // slot 1 (48 bits) - packed
+    uint48 extra;          // slot 1 (48 bits) - packed
+}
+```
+
+### Batch Operations
+
+```solidity
+// Single verification: ~85,000 gas per proof
+// Batch verification: ~50,000 gas per proof (40% savings)
+function batchVerify(Proof[] proofs) {
+    // Aggregate pairing checks
+    // Single multi-pairing at the end
+}
+```
+
+### Calldata Optimization
+
+```solidity
+// Use calldata for read-only params (saves ~2000 gas)
+function registerState(
+    bytes calldata encryptedState,  // calldata, not memory
+    bytes32 commitment,
+    bytes32 nullifier
+) external;
+```
+
+---
+
+## Future Enhancements
+
+### Phase 3: Advanced Verifiers
+
+- **PLONK Verifier**: Universal trusted setup
+- **FRI Verifier**: StarkNet compatibility
+- **Bulletproofs**: Range proofs without trusted setup
+
+### Phase 4: Enhanced Privacy
+
+- **Stealth Addresses**: Unlinkable recipients
+- **Ring Signatures**: Sender anonymity sets
+- **Recursive Proofs**: Proof composition
+
+### Phase 5: Scalability
+
+- **Proof Aggregation**: Multiple proofs → single proof
+- **zkRollup Integration**: Native L2 support
+- **Parallel Verification**: Multi-threaded proof checking
+
+---
+
+## Appendix: Mathematical Background
+
+### Pedersen Commitments
+
+```
+C = g^m · h^r
+
+Where:
+- g, h: Generator points
+- m: Message (state hash)
+- r: Random blinding factor
+
+Properties:
+- Hiding: Cannot determine m from C
+- Binding: Cannot find m' ≠ m with same C
+```
+
+### Groth16 Proof System
+
+```
+Prover knows: witness w
+Public inputs: x₁, ..., xₙ
+Statement: C(x, w) = 0 (circuit satisfiability)
+
+Proof π = (A, B, C) where:
+- A ∈ G₁
+- B ∈ G₂  
+- C ∈ G₁
+
+Verification:
+e(A, B) = e(α, β) · e(∑ᵢ xᵢ·ICᵢ, γ) · e(C, δ)
+```
+
+### Nullifier Construction
+
+```
+nullifier = H(privateKey || commitment || nonce)
+
+Properties:
+- Deterministic: Same inputs → same nullifier
+- Unlinkable: Cannot determine privateKey from nullifier
+- Unique: Different states → different nullifiers
+```
+
+---
+
+## References
+
+1. [Groth16: On the Size of Pairing-based Non-interactive Arguments](https://eprint.iacr.org/2016/260.pdf)
+2. [BLS12-381: Pairing-Friendly Curves](https://electriccoin.co/blog/new-snark-curve/)
+3. [Tornado Cash: Privacy on Ethereum](https://tornado.cash/Tornado.cash_whitepaper_v1.4.pdf)
+4. [Zcash Protocol Specification](https://zips.z.cash/protocol/protocol.pdf)

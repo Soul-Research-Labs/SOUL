@@ -1,0 +1,9 @@
+{
+  "name": "pil-test-suite",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo 'Run tests via hardhat, sdk, relayer, compliance'"
+  },
+  "dependencies": {}
+}
