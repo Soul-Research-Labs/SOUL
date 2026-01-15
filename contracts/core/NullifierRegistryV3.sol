@@ -9,7 +9,6 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 /// @notice Production-ready nullifier registry with merkle tree support for light client verification
 /// @dev Implements incremental merkle tree, cross-chain sync, and efficient batch operations
 contract NullifierRegistryV3 is AccessControl, Pausable {
-
     /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
@@ -152,7 +151,7 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     /// @notice Initializes the nullifier registry
     constructor() {
         CHAIN_ID = block.chainid;
-        
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(REGISTRAR_ROLE, msg.sender);
         _grantRole(BRIDGE_ROLE, msg.sender);
@@ -162,11 +161,13 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
         // zeros[0] is the zero leaf, zeros[i] = hash(zeros[i-1], zeros[i-1])
         bytes32 currentZero = bytes32(0);
         zeros[0] = currentZero;
-        
+
         for (uint256 i = 1; i <= TREE_DEPTH; ) {
             currentZero = _hashPair(currentZero, currentZero);
             zeros[i] = currentZero;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         // Initialize root as empty tree root
@@ -196,19 +197,28 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     function batchRegisterNullifiers(
         bytes32[] calldata _nullifiers,
         bytes32[] calldata _commitments
-    ) external onlyRole(REGISTRAR_ROLE) whenNotPaused returns (uint256 startIndex) {
+    )
+        external
+        onlyRole(REGISTRAR_ROLE)
+        whenNotPaused
+        returns (uint256 startIndex)
+    {
         uint256 len = _nullifiers.length;
         if (len == 0) revert EmptyBatch();
         if (len > MAX_BATCH_SIZE) revert BatchTooLarge(len, MAX_BATCH_SIZE);
-        if (_commitments.length != 0 && _commitments.length != len) 
+        if (_commitments.length != 0 && _commitments.length != len)
             revert BatchTooLarge(_commitments.length, len);
 
         startIndex = totalNullifiers;
 
         for (uint256 i = 0; i < len; ) {
-            bytes32 commitment = _commitments.length > 0 ? _commitments[i] : bytes32(0);
+            bytes32 commitment = _commitments.length > 0
+                ? _commitments[i]
+                : bytes32(0);
             _registerNullifier(_nullifiers[i], commitment, msg.sender);
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         emit NullifierBatchRegistered(_nullifiers, startIndex, len);
@@ -226,18 +236,20 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
         bytes32 sourceMerkleRoot
     ) external onlyRole(BRIDGE_ROLE) whenNotPaused {
         if (sourceChainId == CHAIN_ID) revert InvalidChainId();
-        
+
         uint256 len = _nullifiers.length;
         if (len == 0) revert EmptyBatch();
 
         for (uint256 i = 0; i < len; ) {
             bytes32 nullifier = _nullifiers[i];
-            
+
             if (!isNullifierUsed[nullifier]) {
-                bytes32 commitment = _commitments.length > i ? _commitments[i] : bytes32(0);
-                
+                bytes32 commitment = _commitments.length > i
+                    ? _commitments[i]
+                    : bytes32(0);
+
                 uint256 index = totalNullifiers;
-                
+
                 nullifiers[nullifier] = NullifierData({
                     timestamp: uint64(block.timestamp),
                     blockNumber: uint64(block.number),
@@ -249,7 +261,7 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
 
                 isNullifierUsed[nullifier] = true;
                 _insertIntoTree(nullifier);
-                
+
                 unchecked {
                     ++totalNullifiers;
                     ++chainNullifierCount[sourceChainId];
@@ -263,7 +275,9 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
                     uint64(sourceChainId)
                 );
             }
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         emit CrossChainNullifiersReceived(sourceChainId, sourceMerkleRoot, len);
@@ -279,7 +293,8 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
         address registrar
     ) internal returns (uint256 index) {
         if (nullifier == bytes32(0)) revert ZeroNullifier();
-        if (isNullifierUsed[nullifier]) revert NullifierAlreadyExists(nullifier);
+        if (isNullifierUsed[nullifier])
+            revert NullifierAlreadyExists(nullifier);
 
         index = totalNullifiers;
 
@@ -293,7 +308,7 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
         });
 
         isNullifierUsed[nullifier] = true;
-        
+
         // Insert into merkle tree and update root
         _insertIntoTree(nullifier);
 
@@ -328,7 +343,9 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
                 currentHash = _hashPair(branches[i], currentHash);
             }
             index >>= 1;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         merkleRoot = currentHash;
@@ -342,11 +359,11 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     function _addRootToHistory(bytes32 root) internal {
         rootHistory[rootHistoryIndex] = root;
         historicalRoots[root] = true;
-        
+
         unchecked {
             rootHistoryIndex = (rootHistoryIndex + 1) % ROOT_HISTORY_SIZE;
         }
-        
+
         // Remove old root from valid roots
         bytes32 oldRoot = rootHistory[rootHistoryIndex];
         if (oldRoot != bytes32(0)) {
@@ -358,7 +375,10 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     /// @param left Left node
     /// @param right Right node
     /// @return hash The resulting hash
-    function _hashPair(bytes32 left, bytes32 right) internal pure returns (bytes32) {
+    function _hashPair(
+        bytes32 left,
+        bytes32 right
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(left, right));
     }
 
@@ -376,20 +396,26 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     /// @notice Batch checks if nullifiers exist
     /// @param _nullifiers Array of nullifiers to check
     /// @return results Array of existence results
-    function batchExists(bytes32[] calldata _nullifiers) external view returns (bool[] memory results) {
+    function batchExists(
+        bytes32[] calldata _nullifiers
+    ) external view returns (bool[] memory results) {
         uint256 len = _nullifiers.length;
         results = new bool[](len);
-        
+
         for (uint256 i = 0; i < len; ) {
             results[i] = isNullifierUsed[_nullifiers[i]];
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
     }
 
     /// @notice Gets nullifier data
     /// @param nullifier The nullifier to query
     /// @return data The nullifier metadata
-    function getNullifierData(bytes32 nullifier) external view returns (NullifierData memory data) {
+    function getNullifierData(
+        bytes32 nullifier
+    ) external view returns (NullifierData memory data) {
         if (!isNullifierUsed[nullifier]) revert NullifierNotFound(nullifier);
         return nullifiers[nullifier];
     }
@@ -416,7 +442,7 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
         if (root != merkleRoot && !historicalRoots[root]) {
             revert RootNotInHistory(root);
         }
-        
+
         if (siblings.length != TREE_DEPTH) return false;
 
         bytes32 currentHash = nullifier;
@@ -429,7 +455,9 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
                 currentHash = _hashPair(siblings[i], currentHash);
             }
             currentIndex >>= 1;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         return currentHash == root;
@@ -439,18 +467,24 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
     /// @return _totalNullifiers Total registered nullifiers
     /// @return _merkleRoot Current merkle root
     /// @return _rootHistorySize Number of valid historical roots
-    function getTreeStats() external view returns (
-        uint256 _totalNullifiers,
-        bytes32 _merkleRoot,
-        uint256 _rootHistorySize
-    ) {
+    function getTreeStats()
+        external
+        view
+        returns (
+            uint256 _totalNullifiers,
+            bytes32 _merkleRoot,
+            uint256 _rootHistorySize
+        )
+    {
         return (totalNullifiers, merkleRoot, ROOT_HISTORY_SIZE);
     }
 
     /// @notice Gets nullifier count for a specific chain
     /// @param chainId The chain ID to query
     /// @return count The number of nullifiers from that chain
-    function getNullifierCountByChain(uint256 chainId) external view returns (uint256 count) {
+    function getNullifierCountByChain(
+        uint256 chainId
+    ) external view returns (uint256 count) {
         return chainNullifierCount[chainId];
     }
 
@@ -460,14 +494,18 @@ contract NullifierRegistryV3 is AccessControl, Pausable {
 
     /// @notice Adds a registrar
     /// @param registrar The address to add
-    function addRegistrar(address registrar) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addRegistrar(
+        address registrar
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         grantRole(REGISTRAR_ROLE, registrar);
         emit RegistrarAdded(registrar);
     }
 
     /// @notice Removes a registrar
     /// @param registrar The address to remove
-    function removeRegistrar(address registrar) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function removeRegistrar(
+        address registrar
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         revokeRole(REGISTRAR_ROLE, registrar);
         emit RegistrarRemoved(registrar);
     }

@@ -10,13 +10,13 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 /// @notice Production-ready cross-chain proof relay with optimistic verification and dispute resolution
 /// @dev Implements batching, challenge periods, and gas-efficient proof storage
 contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
-
     /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
-    bytes32 public constant VERIFIER_ADMIN_ROLE = keccak256("VERIFIER_ADMIN_ROLE");
+    bytes32 public constant VERIFIER_ADMIN_ROLE =
+        keccak256("VERIFIER_ADMIN_ROLE");
     bytes32 public constant CHALLENGER_ROLE = keccak256("CHALLENGER_ROLE");
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
@@ -25,49 +25,49 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     //////////////////////////////////////////////////////////////*/
 
     enum ProofStatus {
-        Pending,      // Submitted, in challenge period
-        Verified,     // Challenge period passed or instant verified
-        Challenged,   // Under dispute
-        Rejected,     // Failed verification
-        Finalized     // Executed on destination
+        Pending, // Submitted, in challenge period
+        Verified, // Challenge period passed or instant verified
+        Challenged, // Under dispute
+        Rejected, // Failed verification
+        Finalized // Executed on destination
     }
 
     /// @notice Proof submission structure
     struct ProofSubmission {
-        bytes32 proofHash;           // keccak256(proof)
-        bytes32 publicInputsHash;    // keccak256(publicInputs)
-        bytes32 commitment;          // Associated state commitment
-        uint64 sourceChainId;        // Origin chain
-        uint64 destChainId;          // Destination chain
-        uint64 submittedAt;          // Submission timestamp
-        uint64 challengeDeadline;    // When challenge period ends
-        address relayer;             // Who submitted
-        ProofStatus status;          // Current status
-        uint256 stake;               // Relayer's stake
+        bytes32 proofHash; // keccak256(proof)
+        bytes32 publicInputsHash; // keccak256(publicInputs)
+        bytes32 commitment; // Associated state commitment
+        uint64 sourceChainId; // Origin chain
+        uint64 destChainId; // Destination chain
+        uint64 submittedAt; // Submission timestamp
+        uint64 challengeDeadline; // When challenge period ends
+        address relayer; // Who submitted
+        ProofStatus status; // Current status
+        uint256 stake; // Relayer's stake
     }
 
     /// @notice Batch proof submission
     struct BatchSubmission {
-        bytes32 batchId;             // Unique batch identifier
-        bytes32 merkleRoot;          // Root of proof merkle tree
-        uint256 proofCount;          // Number of proofs in batch
-        uint64 submittedAt;          // Submission timestamp
-        uint64 challengeDeadline;    // Batch challenge deadline
-        address relayer;             // Who submitted
-        ProofStatus status;          // Batch status
-        uint256 totalStake;          // Total stake for batch
+        bytes32 batchId; // Unique batch identifier
+        bytes32 merkleRoot; // Root of proof merkle tree
+        uint256 proofCount; // Number of proofs in batch
+        uint64 submittedAt; // Submission timestamp
+        uint64 challengeDeadline; // Batch challenge deadline
+        address relayer; // Who submitted
+        ProofStatus status; // Batch status
+        uint256 totalStake; // Total stake for batch
     }
 
     /// @notice Challenge structure
     struct Challenge {
-        bytes32 proofId;             // Proof being challenged
-        address challenger;          // Who challenged
-        uint256 stake;               // Challenger's stake
-        uint64 createdAt;            // Challenge timestamp
-        uint64 deadline;             // Resolution deadline
-        bool resolved;               // Whether resolved
-        bool challengerWon;          // Outcome
-        string reason;               // Challenge reason
+        bytes32 proofId; // Proof being challenged
+        address challenger; // Who challenged
+        uint256 stake; // Challenger's stake
+        uint64 createdAt; // Challenge timestamp
+        uint64 deadline; // Resolution deadline
+        bool resolved; // Whether resolved
+        bool challengerWon; // Outcome
+        string reason; // Challenge reason
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -182,7 +182,11 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     error InsufficientStake(uint256 provided, uint256 required);
     error ProofNotFound(bytes32 proofId);
     error ProofAlreadyExists(bytes32 proofId);
-    error InvalidProofStatus(bytes32 proofId, ProofStatus current, ProofStatus expected);
+    error InvalidProofStatus(
+        bytes32 proofId,
+        ProofStatus current,
+        ProofStatus expected
+    );
     error ChallengePeriodNotOver(bytes32 proofId, uint256 deadline);
     error ChallengePeriodOver(bytes32 proofId);
     error ChallengeAlreadyExists(bytes32 proofId);
@@ -210,7 +214,7 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
 
     constructor() {
         CHAIN_ID = block.chainid;
-        
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(RELAYER_ROLE, msg.sender);
         _grantRole(VERIFIER_ADMIN_ROLE, msg.sender);
@@ -234,14 +238,14 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Withdraws relayer stake
     /// @param amount Amount to withdraw
     function withdrawStake(uint256 amount) external nonReentrant {
-        if (relayerStakes[msg.sender] < amount) 
+        if (relayerStakes[msg.sender] < amount)
             revert InsufficientStake(relayerStakes[msg.sender], amount);
-        
+
         relayerStakes[msg.sender] -= amount;
-        
+
         (bool success, ) = msg.sender.call{value: amount}("");
         if (!success) revert WithdrawFailed();
-        
+
         emit RelayerStakeWithdrawn(msg.sender, amount);
     }
 
@@ -263,7 +267,15 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
         uint64 sourceChainId,
         uint64 destChainId
     ) external payable nonReentrant whenNotPaused returns (bytes32 proofId) {
-        return _submitProof(proof, publicInputs, commitment, sourceChainId, destChainId, false);
+        return
+            _submitProof(
+                proof,
+                publicInputs,
+                commitment,
+                sourceChainId,
+                destChainId,
+                false
+            );
     }
 
     /// @notice Submits a proof with instant verification (higher fee)
@@ -286,17 +298,25 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
         IProofVerifier verifier = verifiers[proofType];
         if (address(verifier) == address(0)) {
             verifier = verifiers[DEFAULT_PROOF_TYPE];
-            if (address(verifier) == address(0)) revert VerifierNotSet(proofType);
+            if (address(verifier) == address(0))
+                revert VerifierNotSet(proofType);
         }
 
         if (!verifier.verifyProof(proof, publicInputs)) revert InvalidProof();
 
-        proofId = _submitProof(proof, publicInputs, commitment, sourceChainId, destChainId, true);
-        
+        proofId = _submitProof(
+            proof,
+            publicInputs,
+            commitment,
+            sourceChainId,
+            destChainId,
+            true
+        );
+
         // Mark as verified immediately
         proofs[proofId].status = ProofStatus.Verified;
         proofs[proofId].challengeDeadline = uint64(block.timestamp); // No challenge period
-        
+
         emit ProofVerified(proofId, ProofStatus.Verified);
     }
 
@@ -314,15 +334,20 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
 
         uint256 totalFee = proofSubmissionFee * len;
         if (msg.value < totalFee) revert InsufficientFee(msg.value, totalFee);
-        if (relayerStakes[msg.sender] < minRelayerStake) 
-            revert InsufficientStake(relayerStakes[msg.sender], minRelayerStake);
+        if (relayerStakes[msg.sender] < minRelayerStake)
+            revert InsufficientStake(
+                relayerStakes[msg.sender],
+                minRelayerStake
+            );
 
-        batchId = keccak256(abi.encodePacked(
-            merkleRoot,
-            msg.sender,
-            block.timestamp,
-            totalBatches
-        ));
+        batchId = keccak256(
+            abi.encodePacked(
+                merkleRoot,
+                msg.sender,
+                block.timestamp,
+                totalBatches
+            )
+        );
 
         batches[batchId] = BatchSubmission({
             batchId: batchId,
@@ -337,12 +362,14 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
 
         // Register individual proofs
         for (uint256 i = 0; i < len; ) {
-            bytes32 proofId = keccak256(abi.encodePacked(
-                _proofs[i].proofHash,
-                _proofs[i].commitment,
-                _proofs[i].sourceChainId,
-                _proofs[i].destChainId
-            ));
+            bytes32 proofId = keccak256(
+                abi.encodePacked(
+                    _proofs[i].proofHash,
+                    _proofs[i].commitment,
+                    _proofs[i].sourceChainId,
+                    _proofs[i].destChainId
+                )
+            );
 
             proofs[proofId] = ProofSubmission({
                 proofHash: _proofs[i].proofHash,
@@ -358,10 +385,15 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
             });
 
             proofToBatch[proofId] = batchId;
-            unchecked { ++totalProofs; ++i; }
+            unchecked {
+                ++totalProofs;
+                ++i;
+            }
         }
 
-        unchecked { ++totalBatches; }
+        unchecked {
+            ++totalBatches;
+        }
         accumulatedFees += totalFee;
 
         emit BatchSubmitted(batchId, merkleRoot, len, msg.sender);
@@ -380,8 +412,12 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     ) external payable nonReentrant {
         ProofSubmission storage submission = proofs[proofId];
         if (submission.relayer == address(0)) revert ProofNotFound(proofId);
-        if (submission.status != ProofStatus.Pending) 
-            revert InvalidProofStatus(proofId, submission.status, ProofStatus.Pending);
+        if (submission.status != ProofStatus.Pending)
+            revert InvalidProofStatus(
+                proofId,
+                submission.status,
+                ProofStatus.Pending
+            );
         if (block.timestamp >= submission.challengeDeadline)
             revert ChallengePeriodOver(proofId);
         if (challenges[proofId].challenger != address(0))
@@ -417,7 +453,8 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
         bytes32 proofType
     ) external nonReentrant {
         Challenge storage challenge = challenges[proofId];
-        if (challenge.challenger == address(0)) revert ChallengeNotFound(proofId);
+        if (challenge.challenger == address(0))
+            revert ChallengeNotFound(proofId);
         if (challenge.resolved) revert ChallengeNotFound(proofId);
 
         ProofSubmission storage submission = proofs[proofId];
@@ -425,53 +462,56 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
         // Verify proof hashes match
         bytes32 proofHash = keccak256(proof);
         bytes32 inputsHash = keccak256(publicInputs);
-        
+
         bool proofValid = false;
-        if (proofHash == submission.proofHash && inputsHash == submission.publicInputsHash) {
+        if (
+            proofHash == submission.proofHash &&
+            inputsHash == submission.publicInputsHash
+        ) {
             // Try to verify the proof
             IProofVerifier verifier = verifiers[proofType];
             if (address(verifier) == address(0)) {
                 verifier = verifiers[DEFAULT_PROOF_TYPE];
             }
-            
+
             if (address(verifier) != address(0)) {
                 proofValid = verifier.verifyProof(proof, publicInputs);
             }
         }
 
         challenge.resolved = true;
-        
+
         if (proofValid) {
             // Relayer wins - proof was valid
             challenge.challengerWon = false;
             submission.status = ProofStatus.Verified;
-            
+
             // Reward relayer with challenger's stake
             uint256 reward = challenge.stake;
             relayerStakes[submission.relayer] += reward;
             relayerSuccessCount[submission.relayer]++;
-            
+
             emit ChallengeResolved(proofId, false, submission.relayer, reward);
             emit ProofVerified(proofId, ProofStatus.Verified);
         } else {
             // Challenger wins - proof was invalid
             challenge.challengerWon = true;
             submission.status = ProofStatus.Rejected;
-            
+
             // Slash relayer and reward challenger
             uint256 slashAmount = submission.stake;
             if (relayerStakes[submission.relayer] >= slashAmount) {
                 relayerStakes[submission.relayer] -= slashAmount;
             }
             relayerSlashCount[submission.relayer]++;
-            
+
             uint256 reward = challenge.stake + slashAmount;
             (bool success, ) = challenge.challenger.call{value: reward}("");
             if (!success) {
                 // If transfer fails, add to their "claimable" balance
                 relayerStakes[challenge.challenger] += reward;
             }
-            
+
             emit ChallengeResolved(proofId, true, challenge.challenger, reward);
             emit ProofRejected(proofId, challenge.reason);
         }
@@ -486,17 +526,24 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     function finalizeProof(bytes32 proofId) external nonReentrant {
         ProofSubmission storage submission = proofs[proofId];
         if (submission.relayer == address(0)) revert ProofNotFound(proofId);
-        
+
         if (submission.status == ProofStatus.Pending) {
             if (block.timestamp < submission.challengeDeadline)
-                revert ChallengePeriodNotOver(proofId, submission.challengeDeadline);
-            
+                revert ChallengePeriodNotOver(
+                    proofId,
+                    submission.challengeDeadline
+                );
+
             submission.status = ProofStatus.Verified;
             emit ProofVerified(proofId, ProofStatus.Verified);
         }
-        
+
         if (submission.status != ProofStatus.Verified)
-            revert InvalidProofStatus(proofId, submission.status, ProofStatus.Verified);
+            revert InvalidProofStatus(
+                proofId,
+                submission.status,
+                ProofStatus.Verified
+            );
 
         submission.status = ProofStatus.Finalized;
         relayerSuccessCount[submission.relayer]++;
@@ -517,28 +564,33 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
         bool instant
     ) internal returns (bytes32 proofId) {
         // Validate fee
-        uint256 requiredFee = instant ? proofSubmissionFee * 3 : proofSubmissionFee;
-        if (msg.value < requiredFee) revert InsufficientFee(msg.value, requiredFee);
+        uint256 requiredFee = instant
+            ? proofSubmissionFee * 3
+            : proofSubmissionFee;
+        if (msg.value < requiredFee)
+            revert InsufficientFee(msg.value, requiredFee);
 
         // Validate stake
         if (relayerStakes[msg.sender] < minRelayerStake)
-            revert InsufficientStake(relayerStakes[msg.sender], minRelayerStake);
+            revert InsufficientStake(
+                relayerStakes[msg.sender],
+                minRelayerStake
+            );
 
         // Validate chains
-        if (!supportedChains[sourceChainId]) revert UnsupportedChain(sourceChainId);
+        if (!supportedChains[sourceChainId])
+            revert UnsupportedChain(sourceChainId);
         if (!supportedChains[destChainId]) revert UnsupportedChain(destChainId);
 
         bytes32 proofHash = keccak256(proof);
         bytes32 publicInputsHash = keccak256(publicInputs);
 
-        proofId = keccak256(abi.encodePacked(
-            proofHash,
-            commitment,
-            sourceChainId,
-            destChainId
-        ));
+        proofId = keccak256(
+            abi.encodePacked(proofHash, commitment, sourceChainId, destChainId)
+        );
 
-        if (proofs[proofId].relayer != address(0)) revert ProofAlreadyExists(proofId);
+        if (proofs[proofId].relayer != address(0))
+            revert ProofAlreadyExists(proofId);
 
         proofs[proofId] = ProofSubmission({
             proofHash: proofHash,
@@ -553,10 +605,18 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
             stake: minRelayerStake
         });
 
-        unchecked { ++totalProofs; }
+        unchecked {
+            ++totalProofs;
+        }
         accumulatedFees += msg.value;
 
-        emit ProofSubmitted(proofId, commitment, sourceChainId, destChainId, msg.sender);
+        emit ProofSubmitted(
+            proofId,
+            commitment,
+            sourceChainId,
+            destChainId,
+            msg.sender
+        );
         emit ProofDataEmitted(proofId, proof, publicInputs);
     }
 
@@ -567,28 +627,36 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Gets proof submission details
     /// @param proofId The proof ID
     /// @return submission The proof submission struct
-    function getProof(bytes32 proofId) external view returns (ProofSubmission memory submission) {
+    function getProof(
+        bytes32 proofId
+    ) external view returns (ProofSubmission memory submission) {
         return proofs[proofId];
     }
 
     /// @notice Gets batch details
     /// @param batchId The batch ID
     /// @return batch The batch submission struct
-    function getBatch(bytes32 batchId) external view returns (BatchSubmission memory batch) {
+    function getBatch(
+        bytes32 batchId
+    ) external view returns (BatchSubmission memory batch) {
         return batches[batchId];
     }
 
     /// @notice Gets challenge details
     /// @param proofId The proof ID
     /// @return challenge The challenge struct
-    function getChallenge(bytes32 proofId) external view returns (Challenge memory) {
+    function getChallenge(
+        bytes32 proofId
+    ) external view returns (Challenge memory) {
         return challenges[proofId];
     }
 
     /// @notice Checks if a proof is finalized
     /// @param proofId The proof ID
     /// @return finalized True if finalized
-    function isProofFinalized(bytes32 proofId) external view returns (bool finalized) {
+    function isProofFinalized(
+        bytes32 proofId
+    ) external view returns (bool finalized) {
         return proofs[proofId].status == ProofStatus.Finalized;
     }
 
@@ -597,11 +665,13 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @return stake Current stake
     /// @return successCount Successful submissions
     /// @return slashCount Times slashed
-    function getRelayerStats(address relayer) external view returns (
-        uint256 stake,
-        uint256 successCount,
-        uint256 slashCount
-    ) {
+    function getRelayerStats(
+        address relayer
+    )
+        external
+        view
+        returns (uint256 stake, uint256 successCount, uint256 slashCount)
+    {
         return (
             relayerStakes[relayer],
             relayerSuccessCount[relayer],
@@ -616,42 +686,56 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Sets a verifier for a proof type
     /// @param proofType The proof type identifier
     /// @param _verifier The verifier address
-    function setVerifier(bytes32 proofType, address _verifier) external onlyRole(VERIFIER_ADMIN_ROLE) {
+    function setVerifier(
+        bytes32 proofType,
+        address _verifier
+    ) external onlyRole(VERIFIER_ADMIN_ROLE) {
         verifiers[proofType] = IProofVerifier(_verifier);
         emit VerifierSet(proofType, _verifier);
     }
 
     /// @notice Adds a supported chain
     /// @param chainId The chain ID to add
-    function addSupportedChain(uint256 chainId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function addSupportedChain(
+        uint256 chainId
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         supportedChains[chainId] = true;
         emit ChainAdded(chainId);
     }
 
     /// @notice Removes a supported chain
     /// @param chainId The chain ID to remove
-    function removeSupportedChain(uint256 chainId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function removeSupportedChain(
+        uint256 chainId
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         supportedChains[chainId] = false;
         emit ChainRemoved(chainId);
     }
 
     /// @notice Updates challenge period
     /// @param _period New period in seconds
-    function setChallengePeriod(uint256 _period) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setChallengePeriod(
+        uint256 _period
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         challengePeriod = _period;
     }
 
     /// @notice Updates minimum stakes
     /// @param _relayerStake New relayer stake
     /// @param _challengerStake New challenger stake
-    function setMinStakes(uint256 _relayerStake, uint256 _challengerStake) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setMinStakes(
+        uint256 _relayerStake,
+        uint256 _challengerStake
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         minRelayerStake = _relayerStake;
         minChallengerStake = _challengerStake;
     }
 
     /// @notice Updates proof submission fee
     /// @param _fee New fee in wei
-    function setProofSubmissionFee(uint256 _fee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setProofSubmissionFee(
+        uint256 _fee
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         proofSubmissionFee = _fee;
     }
 
@@ -683,7 +767,10 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
 //////////////////////////////////////////////////////////////*/
 
 interface IProofVerifier {
-    function verifyProof(bytes calldata proof, bytes calldata publicInputs) external view returns (bool);
+    function verifyProof(
+        bytes calldata proof,
+        bytes calldata publicInputs
+    ) external view returns (bool);
 }
 
 /// @notice Batch proof input structure

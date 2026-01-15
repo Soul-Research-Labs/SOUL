@@ -11,22 +11,27 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 /// @author PIL Protocol
 /// @notice Production-ready confidential state management with enhanced security
 /// @dev Implements role-based access, state versioning, batch operations, and emergency recovery
-contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausable {
+contract ConfidentialStateContainerV3 is
+    AccessControl,
+    ReentrancyGuard,
+    Pausable
+{
     using ECDSA for bytes32;
     using MessageHashUtils for bytes32;
 
     /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
-    
+
     /// @notice Role for operators who can manage state
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-    
+
     /// @notice Role for emergency actions
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
-    
+
     /// @notice Role for verifier management
-    bytes32 public constant VERIFIER_ADMIN_ROLE = keccak256("VERIFIER_ADMIN_ROLE");
+    bytes32 public constant VERIFIER_ADMIN_ROLE =
+        keccak256("VERIFIER_ADMIN_ROLE");
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -34,10 +39,10 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
 
     /// @notice State status enum
     enum StateStatus {
-        Active,      // Normal active state
-        Locked,      // Temporarily locked (e.g., during dispute)
-        Frozen,      // Frozen by compliance
-        Retired      // State has been consumed/transferred
+        Active, // Normal active state
+        Locked, // Temporarily locked (e.g., during dispute)
+        Frozen, // Frozen by compliance
+        Retired // State has been consumed/transferred
     }
 
     /// @notice Encrypted state structure with versioning
@@ -139,7 +144,10 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
         uint256 count
     );
 
-    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    event VerifierUpdated(
+        address indexed oldVerifier,
+        address indexed newVerifier
+    );
     event ProofValidityWindowUpdated(uint256 oldWindow, uint256 newWindow);
     event MaxStateSizeUpdated(uint256 oldSize, uint256 newSize);
 
@@ -175,9 +183,9 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     /// @param _verifier Address of the proof verifier contract
     constructor(address _verifier) {
         if (_verifier == address(0)) revert ZeroAddress();
-        
+
         verifier = IProofVerifier(_verifier);
-        
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(OPERATOR_ROLE, msg.sender);
         _grantRole(EMERGENCY_ROLE, msg.sender);
@@ -236,21 +244,25 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
         bytes calldata signature
     ) external nonReentrant whenNotPaused {
         if (block.timestamp > deadline) revert SignatureExpired();
-        
-        bytes32 structHash = keccak256(abi.encode(
-            keccak256("RegisterState(bytes32 commitment,bytes32 nullifier,address owner,uint256 nonce,uint256 deadline)"),
-            commitment,
-            nullifier,
-            owner,
-            nonces[owner]++,
-            deadline
-        ));
-        
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256(
+                    "RegisterState(bytes32 commitment,bytes32 nullifier,address owner,uint256 nonce,uint256 deadline)"
+                ),
+                commitment,
+                nullifier,
+                owner,
+                nonces[owner]++,
+                deadline
+            )
+        );
+
         bytes32 digest = structHash.toEthSignedMessageHash();
         address signer = digest.recover(signature);
-        
+
         if (signer != owner) revert InvalidSignature();
-        
+
         _validateAndRegisterState(
             encryptedState,
             commitment,
@@ -284,7 +296,9 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
                 msg.sender
             );
             commitments[i] = _states[i].commitment;
-            unchecked { ++i; }
+            unchecked {
+                ++i;
+            }
         }
 
         emit StateBatchRegistered(commitments, msg.sender, len);
@@ -334,7 +348,7 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     ) internal {
         // Validations
         if (encryptedState.length == 0) revert EmptyEncryptedState();
-        if (encryptedState.length > maxStateSize) 
+        if (encryptedState.length > maxStateSize)
             revert StateSizeTooLarge(encryptedState.length, maxStateSize);
         if (states[commitment].owner != address(0))
             revert CommitmentAlreadyExists(commitment);
@@ -390,9 +404,11 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
             revert StateSizeTooLarge(newEncryptedState.length, maxStateSize);
 
         EncryptedState storage oldState = states[oldCommitment];
-        if (oldState.owner == address(0)) revert CommitmentNotFound(oldCommitment);
-        if (oldState.owner != caller) revert NotStateOwner(caller, oldState.owner);
-        if (oldState.status != StateStatus.Active) 
+        if (oldState.owner == address(0))
+            revert CommitmentNotFound(oldCommitment);
+        if (oldState.owner != caller)
+            revert NotStateOwner(caller, oldState.owner);
+        if (oldState.status != StateStatus.Active)
             revert StateNotActive(oldCommitment, oldState.status);
         if (nullifiers[newNullifier]) revert NullifierAlreadyUsed(newNullifier);
 
@@ -400,16 +416,22 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
         if (!verifier.verifyProof(proof, publicInputs)) revert InvalidProof();
 
         // Record transition history
-        stateHistory[oldCommitment].push(StateTransition({
-            fromCommitment: oldCommitment,
-            toCommitment: newCommitment,
-            fromOwner: oldState.owner,
-            toOwner: newOwner,
-            timestamp: block.timestamp,
-            transactionHash: keccak256(abi.encodePacked(
-                oldCommitment, newCommitment, block.timestamp
-            ))
-        }));
+        stateHistory[oldCommitment].push(
+            StateTransition({
+                fromCommitment: oldCommitment,
+                toCommitment: newCommitment,
+                fromOwner: oldState.owner,
+                toOwner: newOwner,
+                timestamp: block.timestamp,
+                transactionHash: keccak256(
+                    abi.encodePacked(
+                        oldCommitment,
+                        newCommitment,
+                        block.timestamp
+                    )
+                )
+            })
+        );
 
         // Mark old state as retired
         oldState.status = StateStatus.Retired;
@@ -418,7 +440,7 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
         // Store new state
         uint64 newVersion = oldState.version + 1;
         uint64 timestamp = uint64(block.timestamp);
-        
+
         states[newCommitment] = EncryptedState({
             encryptedState: newEncryptedState,
             commitment: newCommitment,
@@ -438,7 +460,12 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
         // Track new owner's commitments
         ownerCommitments[newOwner].push(newCommitment);
 
-        emit StateTransferred(oldCommitment, newCommitment, newOwner, newVersion);
+        emit StateTransferred(
+            oldCommitment,
+            newCommitment,
+            newOwner,
+            newVersion
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -448,28 +475,36 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     /// @notice Checks if a state exists and is active
     /// @param commitment The commitment to check
     /// @return exists True if exists and active
-    function isStateActive(bytes32 commitment) external view returns (bool exists) {
+    function isStateActive(
+        bytes32 commitment
+    ) external view returns (bool exists) {
         return states[commitment].status == StateStatus.Active;
     }
 
     /// @notice Gets full state details
     /// @param commitment The commitment to query
     /// @return state The encrypted state struct
-    function getState(bytes32 commitment) external view returns (EncryptedState memory state) {
+    function getState(
+        bytes32 commitment
+    ) external view returns (EncryptedState memory state) {
         return states[commitment];
     }
 
     /// @notice Gets all commitments for an owner
     /// @param owner The owner address
     /// @return commitments Array of commitment hashes
-    function getOwnerCommitments(address owner) external view returns (bytes32[] memory commitments) {
+    function getOwnerCommitments(
+        address owner
+    ) external view returns (bytes32[] memory commitments) {
         return ownerCommitments[owner];
     }
 
     /// @notice Gets state transition history
     /// @param commitment The commitment to query
     /// @return transitions Array of state transitions
-    function getStateHistory(bytes32 commitment) external view returns (StateTransition[] memory transitions) {
+    function getStateHistory(
+        bytes32 commitment
+    ) external view returns (StateTransition[] memory transitions) {
         return stateHistory[commitment];
     }
 
@@ -486,7 +521,9 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
 
     /// @notice Updates the verifier contract
     /// @param _newVerifier The new verifier address
-    function setVerifier(address _newVerifier) external onlyRole(VERIFIER_ADMIN_ROLE) {
+    function setVerifier(
+        address _newVerifier
+    ) external onlyRole(VERIFIER_ADMIN_ROLE) {
         if (_newVerifier == address(0)) revert ZeroAddress();
         address oldVerifier = address(verifier);
         verifier = IProofVerifier(_newVerifier);
@@ -495,7 +532,9 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
 
     /// @notice Updates proof validity window
     /// @param _window The new window in seconds
-    function setProofValidityWindow(uint256 _window) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setProofValidityWindow(
+        uint256 _window
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 oldWindow = proofValidityWindow;
         proofValidityWindow = _window;
         emit ProofValidityWindowUpdated(oldWindow, _window);
@@ -503,7 +542,9 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
 
     /// @notice Updates maximum state size
     /// @param _maxSize The new maximum size in bytes
-    function setMaxStateSize(uint256 _maxSize) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setMaxStateSize(
+        uint256 _maxSize
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 oldSize = maxStateSize;
         maxStateSize = _maxSize;
         emit MaxStateSizeUpdated(oldSize, _maxSize);
@@ -514,11 +555,11 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     function lockState(bytes32 commitment) external onlyRole(OPERATOR_ROLE) {
         EncryptedState storage state = states[commitment];
         if (state.owner == address(0)) revert CommitmentNotFound(commitment);
-        
+
         StateStatus oldStatus = state.status;
         state.status = StateStatus.Locked;
         state.updatedAt = uint64(block.timestamp);
-        
+
         emit StateStatusChanged(commitment, oldStatus, StateStatus.Locked);
     }
 
@@ -527,11 +568,11 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     function unlockState(bytes32 commitment) external onlyRole(OPERATOR_ROLE) {
         EncryptedState storage state = states[commitment];
         if (state.owner == address(0)) revert CommitmentNotFound(commitment);
-        
+
         StateStatus oldStatus = state.status;
         state.status = StateStatus.Active;
         state.updatedAt = uint64(block.timestamp);
-        
+
         emit StateStatusChanged(commitment, oldStatus, StateStatus.Active);
     }
 
@@ -540,12 +581,14 @@ contract ConfidentialStateContainerV3 is AccessControl, ReentrancyGuard, Pausabl
     function freezeState(bytes32 commitment) external onlyRole(EMERGENCY_ROLE) {
         EncryptedState storage state = states[commitment];
         if (state.owner == address(0)) revert CommitmentNotFound(commitment);
-        
+
         StateStatus oldStatus = state.status;
         state.status = StateStatus.Frozen;
         state.updatedAt = uint64(block.timestamp);
-        unchecked { --activeStates; }
-        
+        unchecked {
+            --activeStates;
+        }
+
         emit StateStatusChanged(commitment, oldStatus, StateStatus.Frozen);
     }
 
