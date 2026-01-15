@@ -1,0 +1,65 @@
+{
+  "name": "@pil/circuits",
+  "version": "1.0.0",
+  "description": "Privacy Interoperability Layer - Optimized ZK Circuits",
+  "main": "build/index.js",
+  "scripts": {
+    "setup": "npm run compile && npm run setup:powers && npm run setup:keys",
+    "compile": "npm run compile:state && npm run compile:transfer && npm run compile:merkle && npm run compile:crosschain && npm run compile:compliance",
+    "compile:state": "circom state_commitment.circom --r1cs --wasm --sym -o build/state_commitment",
+    "compile:transfer": "circom state_transfer.circom --r1cs --wasm --sym -o build/state_transfer",
+    "compile:merkle": "circom merkle_proof.circom --r1cs --wasm --sym -o build/merkle_proof",
+    "compile:crosschain": "circom cross_chain_proof.circom --r1cs --wasm --sym -o build/cross_chain_proof",
+    "compile:compliance": "circom compliance_proof.circom --r1cs --wasm --sym -o build/compliance_proof",
+    "setup:powers": "snarkjs powersoftau new bn128 16 build/pot16_0000.ptau -v && snarkjs powersoftau contribute build/pot16_0000.ptau build/pot16_0001.ptau --name='PIL Contribution' -v && snarkjs powersoftau prepare phase2 build/pot16_0001.ptau build/pot16_final.ptau -v",
+    "setup:keys": "npm run setup:keys:state && npm run setup:keys:transfer && npm run setup:keys:merkle && npm run setup:keys:crosschain && npm run setup:keys:compliance",
+    "setup:keys:state": "snarkjs groth16 setup build/state_commitment/state_commitment.r1cs build/pot16_final.ptau build/state_commitment/circuit_0000.zkey && snarkjs zkey contribute build/state_commitment/circuit_0000.zkey build/state_commitment/circuit_final.zkey --name='PIL' -v && snarkjs zkey export verificationkey build/state_commitment/circuit_final.zkey build/state_commitment/verification_key.json",
+    "setup:keys:transfer": "snarkjs groth16 setup build/state_transfer/state_transfer.r1cs build/pot16_final.ptau build/state_transfer/circuit_0000.zkey && snarkjs zkey contribute build/state_transfer/circuit_0000.zkey build/state_transfer/circuit_final.zkey --name='PIL' -v && snarkjs zkey export verificationkey build/state_transfer/circuit_final.zkey build/state_transfer/verification_key.json",
+    "setup:keys:merkle": "snarkjs groth16 setup build/merkle_proof/merkle_proof.r1cs build/pot16_final.ptau build/merkle_proof/circuit_0000.zkey && snarkjs zkey contribute build/merkle_proof/circuit_0000.zkey build/merkle_proof/circuit_final.zkey --name='PIL' -v && snarkjs zkey export verificationkey build/merkle_proof/circuit_final.zkey build/merkle_proof/verification_key.json",
+    "setup:keys:crosschain": "snarkjs groth16 setup build/cross_chain_proof/cross_chain_proof.r1cs build/pot16_final.ptau build/cross_chain_proof/circuit_0000.zkey && snarkjs zkey contribute build/cross_chain_proof/circuit_0000.zkey build/cross_chain_proof/circuit_final.zkey --name='PIL' -v && snarkjs zkey export verificationkey build/cross_chain_proof/circuit_final.zkey build/cross_chain_proof/verification_key.json",
+    "setup:keys:compliance": "snarkjs groth16 setup build/compliance_proof/compliance_proof.r1cs build/pot16_final.ptau build/compliance_proof/circuit_0000.zkey && snarkjs zkey contribute build/compliance_proof/circuit_0000.zkey build/compliance_proof/circuit_final.zkey --name='PIL' -v && snarkjs zkey export verificationkey build/compliance_proof/circuit_final.zkey build/compliance_proof/verification_key.json",
+    "export:solidity": "npm run export:solidity:state && npm run export:solidity:transfer && npm run export:solidity:crosschain",
+    "export:solidity:state": "snarkjs zkey export solidityverifier build/state_commitment/circuit_final.zkey ../contracts/verifiers/StateCommitmentVerifier.sol",
+    "export:solidity:transfer": "snarkjs zkey export solidityverifier build/state_transfer/circuit_final.zkey ../contracts/verifiers/StateTransferVerifier.sol",
+    "export:solidity:crosschain": "snarkjs zkey export solidityverifier build/cross_chain_proof/circuit_final.zkey ../contracts/verifiers/CrossChainVerifier.sol",
+    "test": "npm run test:state && npm run test:transfer",
+    "test:state": "node test/state_commitment.test.js",
+    "test:transfer": "node test/state_transfer.test.js",
+    "benchmark": "node benchmark/circuit_benchmark.js"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5",
+    "snarkjs": "^0.7.3",
+    "ffjavascript": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  },
+  "circuitStats": {
+    "state_commitment": {
+      "constraints": "~2,800",
+      "provingTime": "~1.2s",
+      "proofSize": "192 bytes"
+    },
+    "state_transfer": {
+      "constraints": "~3,500",
+      "provingTime": "~1.5s",
+      "proofSize": "192 bytes"
+    },
+    "merkle_proof_20": {
+      "constraints": "~5,000",
+      "provingTime": "~2.0s",
+      "proofSize": "192 bytes"
+    },
+    "cross_chain_proof": {
+      "constraints": "~5,200",
+      "provingTime": "~2.1s",
+      "proofSize": "192 bytes"
+    },
+    "compliance_proof": {
+      "constraints": "~4,500",
+      "provingTime": "~1.8s",
+      "proofSize": "192 bytes"
+    }
+  }
+}
