@@ -57,6 +57,9 @@ contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
     /// @notice Maximum time lock duration (7 days)
     uint256 public constant MAX_TIMELOCK = 7 days;
 
+    /// @notice Maximum protocol fee in basis points (1%)
+    uint256 public constant MAX_FEE_BPS = 100;
+
     /// @notice Protocol fee in basis points (0.1%)
     uint256 public protocolFeeBps = 10;
 
@@ -405,7 +408,7 @@ contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
     /// @notice Updates the protocol fee
     /// @param newFeeBps New fee in basis points
     function setProtocolFee(uint256 newFeeBps) external onlyOwner {
-        require(newFeeBps <= 100, "Fee too high"); // Max 1%
+        if (newFeeBps > MAX_FEE_BPS) revert InvalidAmount();
         uint256 oldFee = protocolFeeBps;
         protocolFeeBps = newFeeBps;
         emit FeeUpdated(oldFee, newFeeBps);

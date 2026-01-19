@@ -173,6 +173,8 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
     event ContractRegistered(address indexed contractAddress, string name);
     event ContractPaused(address indexed contractAddress, string reason);
     event ContractUnpaused(address indexed contractAddress);
+    /// @notice Emitted when a pause/unpause call fails on a target contract
+    event PauseCallResult(address indexed contractAddress, bool success);
 
     event AssetFrozen(
         bytes32 indexed assetId,
@@ -386,8 +388,14 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
         pc.lastActionAt = block.timestamp;
 
         // Call pause on target contract if it supports it
-        // Success is not checked - contract may already be paused
-        contractAddress.call(abi.encodeWithSignature("pause()"));
+        // SECURITY: Check return value to ensure state consistency
+        (bool success, ) = contractAddress.call(
+            abi.encodeWithSignature("pause()")
+        );
+        if (!success) {
+            // Emit event if pause call failed (contract may not support pause or already paused)
+            emit PauseCallResult(contractAddress, false);
+        }
 
         emit ContractPaused(contractAddress, reason);
     }
@@ -407,7 +415,13 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
         pc.lastActionAt = block.timestamp;
 
         // Call unpause on target contract
-        contractAddress.call(abi.encodeWithSignature("unpause()"));
+        // SECURITY: Check return value to ensure state consistency
+        (bool success, ) = contractAddress.call(
+            abi.encodeWithSignature("unpause()")
+        );
+        if (!success) {
+            emit PauseCallResult(contractAddress, false);
+        }
 
         emit ContractUnpaused(contractAddress);
     }
@@ -429,7 +443,13 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
             if (pc.isPausable && !pc.isPaused) {
                 pc.isPaused = true;
                 pc.lastActionAt = block.timestamp;
-                addr.call(abi.encodeWithSignature("pause()"));
+                // SECURITY: Check return value for each pause call
+                (bool success, ) = addr.call(
+                    abi.encodeWithSignature("pause()")
+                );
+                if (!success) {
+                    emit PauseCallResult(addr, false);
+                }
                 emit ContractPaused(addr, reason);
             }
             unchecked {

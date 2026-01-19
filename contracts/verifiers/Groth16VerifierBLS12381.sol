@@ -70,6 +70,10 @@ contract Groth16VerifierBLS12381 {
 
     event VerificationKeySet(uint256 icLength);
     event ProofVerified(bytes32 indexed proofHash, bool result);
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
 
     /*//////////////////////////////////////////////////////////////
                             MODIFIERS
@@ -119,13 +123,17 @@ contract Groth16VerifierBLS12381 {
         vkDelta = _delta;
 
         delete vkIC;
-        for (uint256 i = 0; i < _ic.length; i++) {
+        uint256 icLen = _ic.length;
+        for (uint256 i = 0; i < icLen; ) {
             if (_ic[i].length != G1_SIZE) revert InvalidPointSize();
             vkIC.push(_ic[i]);
+            unchecked {
+                ++i;
+            }
         }
 
         initialized = true;
-        emit VerificationKeySet(_ic.length);
+        emit VerificationKeySet(icLen);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -450,8 +458,11 @@ contract Groth16VerifierBLS12381 {
     }
 
     /// @notice Transfer ownership
+    /// @param newOwner New owner address
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "Invalid owner");
+        address oldOwner = owner;
         owner = newOwner;
+        emit OwnershipTransferred(oldOwner, newOwner);
     }
 }

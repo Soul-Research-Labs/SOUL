@@ -7,10 +7,12 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "test:integration": "hardhat test test/integration/e2e.test.js",
-    "test:security": "hardhat test test/SecurityVulnerabilityTests.test.js",
     "test:fuzzing": "hardhat test test/EnhancedFuzzing.test.js",
     "coverage": "hardhat coverage",
-    "clean": "hardhat clean"
+    "clean": "hardhat clean",
+    "slither": "slither contracts/bridge/PILAtomicSwapV2.sol --solc-remaps '@openzeppelin/=node_modules/@openzeppelin/' && slither contracts/primitives/ZKBoundStateLocks.sol --solc-remaps '@openzeppelin/=node_modules/@openzeppelin/' && slither contracts/security/EmergencyRecovery.sol --solc-remaps '@openzeppelin/=node_modules/@openzeppelin/' && slither contracts/verifiers/Groth16VerifierBN254.sol --solc-remaps '@openzeppelin/=node_modules/@openzeppelin/'",
+    "echidna:swap": "echidna . --contract EchidnaAtomicSwapTest --test-limit 10000",
+    "certora": "certoraRun certora/conf/verify.conf"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ignition": "^3.0.0",

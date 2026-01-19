@@ -1,7 +1,7 @@
 # Privacy Interoperability Layer (PIL)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Solidity](https://img.shields.io/badge/Solidity-0.8.20-blue.svg)](https://docs.soliditylang.org/)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.22-blue.svg)](https://docs.soliditylang.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 
 Cross-chain middleware for private state transfer and zero-knowledge proof verification across heterogeneous blockchain networks.
@@ -13,6 +13,7 @@ Cross-chain middleware for private state transfer and zero-knowledge proof verif
 - **Relayer Network** - Decentralized proof aggregation with staking and slashing
 - **Atomic Swaps** - HTLC-based private cross-chain swaps with stealth commitments
 - **Compliance Layer** - Optional KYC/AML with zero-knowledge selective disclosure
+- **ZK-Bound State Locks (ZK-SLocks)** - Novel primitive for cross-chain confidential state transitions with ZK-proof unlocking
 
 ### PIL v2 Novel Primitives
 
@@ -20,6 +21,7 @@ Cross-chain middleware for private state transfer and zero-knowledge proof verif
 - **PBP (Policy-Bound Proofs)** - Proofs cryptographically scoped by disclosure policy
 - **EASC (Execution-Agnostic State Commitments)** - Backend-independent state verification
 - **CDNA (Cross-Domain Nullifier Algebra)** - Domain-separated nullifiers for cross-chain replay protection
+- **ZK-SLocks** - Cross-chain confidential state locks with ZK-proof based unlocking and optimistic dispute resolution
 
 ## Architecture
 
@@ -27,8 +29,11 @@ Cross-chain middleware for private state transfer and zero-knowledge proof verif
 ┌─────────────────────────────────────────────────────────────────┐
 │                   Privacy Interoperability Layer                │
 ├─────────────────────────────────────────────────────────────────┤
-│  Layer 6: TEE Attestation                                       │
+│  Layer 7: TEE Attestation                                       │
 │  SGX (EPID/DCAP) | TDX | SEV-SNP | TrustZone                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Layer 6: ZK-Bound State Locks (ZK-SLocks)                      │
+│  Cross-chain confidential state transitions | Dispute resolution│
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 5: PIL v2 Primitives                                     │
 │  PC³ | PBP | EASC | CDNA | HH | ADA | CRP                       │
@@ -50,6 +55,7 @@ Cross-chain middleware for private state transfer and zero-knowledge proof verif
 | Layer | Description |
 |-------|-------------|
 | TEE Attestation | Hardware-based attestation for trusted execution environments |
+| ZK-SLocks | Cross-chain confidential state locks unlocked via ZK proofs |
 | PIL v2 Primitives | Novel cryptographic primitives for advanced privacy operations |
 | Confidential State | Encrypted state storage with Pedersen commitments and nullifier tracking |
 | Proof Translation | Verifiers for different ZK systems with proof format conversion |
@@ -305,6 +311,56 @@ function registerDerivedNullifier(
 function consumeNullifier(bytes32 nullifier) external;
 ```
 
+### ZKBoundStateLocks (ZK-SLocks)
+
+Cross-chain confidential state locks that can only be unlocked with valid zero-knowledge proofs.
+
+```solidity
+// Create a new ZK-bound state lock
+function createLock(
+    bytes32 oldStateCommitment,
+    bytes32 targetChainCommitment,
+    uint64 unlockDeadline,
+    bytes32 secretHash,
+    bytes32 userEntropy
+) external returns (bytes32 lockId);
+
+// Unlock with ZK proof (immediate)
+function unlock(UnlockProof calldata proof) external;
+
+// Initiate optimistic unlock (requires bond)
+function initiateOptimisticUnlock(
+    bytes32 lockId,
+    bytes32 newStateCommitment,
+    bytes32 nullifier,
+    bytes calldata zkProof
+) external payable;
+
+// Challenge invalid optimistic unlock
+function challengeOptimisticUnlock(
+    bytes32 lockId,
+    UnlockProof calldata conflictProof
+) external;
+
+// Finalize after dispute window
+function finalizeOptimisticUnlock(bytes32 lockId) external;
+
+// Register domain for cross-chain coordination
+function registerDomain(
+    uint16 chainId,
+    uint16 appId,
+    uint32 epoch,
+    string calldata name
+) external returns (bytes32 domainSeparator);
+```
+
+**Key Features:**
+- **Cryptographic State Locking**: Locks bound to state commitments, not addresses
+- **ZK-Proof Unlocking**: Only valid zero-knowledge proofs can unlock
+- **Optimistic Dispute Resolution**: Economic security with 2-hour challenge window
+- **Cross-Domain Nullifiers**: Prevents replay attacks across chains
+- **LLVM-Safe**: Explicit bit masking to prevent compiler optimization bugs
+
 ### PILv2Orchestrator
 
 Integrates all PIL v2 primitives for coordinated workflows.
@@ -402,16 +458,30 @@ const { policyId } = await pbp.registerPolicy({
 
 ## Security
 
-- OpenZeppelin security patterns (Ownable, ReentrancyGuard, Pausable)
+- OpenZeppelin security patterns (AccessControl, ReentrancyGuard, Pausable)
 - AES-256-GCM encryption for state data
 - Pedersen commitments with hiding/binding properties
 - Nullifier-based double-spend prevention
 - Relayer staking with slashing for misbehavior
+- LLVM-safe bit operations (explicit masking to prevent compiler optimization bugs)
+- EIP-1967 compliant proxy storage slots
+- Custom errors for gas-efficient error handling
+
+### Security Tooling
+
+```bash
+npm run slither             # Static analysis (Slither)
+npm run test:fuzzing        # Property-based fuzzing (14 tests)
+npm run certora             # Formal verification (requires API key)
+```
+
+See [Security Analysis Report](reports/SECURITY_ANALYSIS_REPORT.md) for detailed findings.
 
 ## Testing
 
 ```bash
-npm test                    # Run all tests (281 passing)
+npm test                    # Run all tests (59 passing)
+npm run test:fuzzing        # Property-based fuzzing tests (14 tests)
 npm run test:integration    # Integration tests only
 REPORT_GAS=true npm test    # With gas reporting
 ```
@@ -438,6 +508,7 @@ Test coverage includes:
 - [x] Cross-chain infrastructure (proof hub, relayers, swaps)
 - [x] Compliance layer (KYC/AML)
 - [x] PIL v2 primitives (PC³, PBP, EASC, CDNA)
+- [x] ZK-Bound State Locks (ZK-SLocks) - Novel cross-chain primitive
 - [x] PIL v2 orchestrator integration
 - [x] SDK clients for PIL v2 primitives
 - [x] PLONK verifier (universal trusted setup support)
@@ -446,7 +517,9 @@ Test coverage includes:
 - [x] Homomorphic Hiding (HH) - research grade
 - [x] Aggregate Disclosure Algebra (ADA) - research grade
 - [x] Composable Revocation Proofs (CRP) - research grade
-- [x] Comprehensive test suite (281 tests passing)
+- [x] Comprehensive test suite (59 tests passing)
+- [x] Security tooling (Slither, Echidna, Certora specs)
+- [x] LLVM vulnerability hardening
 - [x] Local testnet deployment complete
 - [ ] Professional security audit
 - [ ] Testnet deployment (Sepolia)

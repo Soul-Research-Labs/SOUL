@@ -189,6 +189,9 @@ contract ZKSLockIntegration {
     /// @param domainId CDNA domain for nullifier
     /// @param commitmentHash Associated commitment for CDNA
     /// @param policyHash Policy hash for the lock
+    /// @param userEntropy User-provided randomness for nullifier generation
+    /// @dev SECURITY: Requires user entropy to prevent front-running attacks.
+    ///      block.timestamp is manipulable by miners/sequencers on L2s.
     /// @return lockId The created lock ID
     /// @return nullifier The generated CDNA nullifier
     function createCrossDomainLock(
@@ -196,9 +199,11 @@ contract ZKSLockIntegration {
         bytes32 transitionPredicateHash,
         bytes32 domainId,
         bytes32 commitmentHash,
-        bytes32 policyHash
+        bytes32 policyHash,
+        bytes32 userEntropy
     ) external returns (bytes32 lockId, bytes32 nullifier) {
         if (!integrationEnabled) revert IntegrationDisabled();
+        require(userEntropy != bytes32(0), "User entropy required");
 
         // Create the ZK-SLock
         lockId = zkSlocks.createLock(
@@ -209,9 +214,10 @@ contract ZKSLockIntegration {
             0 // No deadline
         );
 
-        // Generate nullifier
+        // Generate nullifier with user-provided entropy
+        // SECURITY: Combines user entropy with msg.sender and block.number for unpredictability
         nullifier = zkSlocks.generateNullifier(
-            keccak256(abi.encodePacked(msg.sender, block.timestamp)), // secret
+            keccak256(abi.encodePacked(userEntropy, msg.sender, block.number)),
             lockId,
             domainId
         );
@@ -244,10 +250,12 @@ contract ZKSLockIntegration {
         bytes32 domainSeparator;
         bytes32 commitmentHash;
         uint64 unlockDeadline;
+        bytes32 userEntropy; // SECURITY: User-provided randomness
         bytes encryptedPayload;
     }
 
     /// @notice Creates an atomic lock across all integrated primitives
+    /// @dev SECURITY: Requires userEntropy in params to prevent front-running
     function createAtomicLock(
         AtomicLockParams calldata params
     )
@@ -255,6 +263,7 @@ contract ZKSLockIntegration {
         returns (bytes32 lockId, bytes32 containerId, bytes32 nullifier)
     {
         if (!integrationEnabled) revert IntegrationDisabled();
+        require(params.userEntropy != bytes32(0), "User entropy required");
 
         bytes32 domainSep = params.domainSeparator != bytes32(0)
             ? params.domainSeparator
@@ -269,9 +278,12 @@ contract ZKSLockIntegration {
             params.unlockDeadline
         );
 
-        // 2. Generate nullifier
+        // 2. Generate nullifier with user entropy
+        // SECURITY: Uses user entropy + msg.sender + block.number for unpredictability
         nullifier = zkSlocks.generateNullifier(
-            keccak256(abi.encodePacked(msg.sender, block.timestamp)),
+            keccak256(
+                abi.encodePacked(params.userEntropy, msg.sender, block.number)
+            ),
             lockId,
             domainSep
         );
@@ -282,7 +294,7 @@ contract ZKSLockIntegration {
 
         // 4. Create container ID (PC³ container creation would happen externally)
         if (params.encryptedPayload.length > 0) {
-            containerId = keccak256(abi.encode(lockId, block.timestamp));
+            containerId = keccak256(abi.encode(lockId, block.number));
             containerToLock[containerId] = lockId;
             lockToContainer[lockId] = containerId;
         }

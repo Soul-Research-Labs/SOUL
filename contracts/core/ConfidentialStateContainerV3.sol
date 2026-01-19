@@ -181,6 +181,11 @@ contract ConfidentialStateContainerV3 is
     /// @dev Bit shift for counter packing
     uint256 private constant COUNTER_SHIFT = 128;
 
+    /// @dev Pre-computed shift increment for counter operations
+    /// SECURITY: Explicit constant prevents LLVM optimization issues on L2s (ZKsync)
+    /// where `1 << 128` could be incorrectly compiled with 64-bit operations
+    uint256 private constant COUNTER_INCREMENT = uint256(1) << 128;
+
     /*//////////////////////////////////////////////////////////////
                              CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -467,8 +472,10 @@ contract ConfidentialStateContainerV3 is
         _ownerCommitments[owner].push(commitment);
 
         // Update packed counters (both +1)
+        // SECURITY: Uses pre-computed COUNTER_INCREMENT constant to avoid LLVM
+        // optimization bugs where `1 << 128` could be miscompiled on L2s
         unchecked {
-            _packedCounters += (1 << COUNTER_SHIFT) + 1;
+            _packedCounters += COUNTER_INCREMENT + 1;
         }
 
         emit StateRegistered(commitment, owner, nullifier, block.timestamp);

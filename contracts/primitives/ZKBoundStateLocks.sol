@@ -468,8 +468,14 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
             lock.domainSeparator
         );
 
-        // Return bond to unlocker
-        payable(optimistic.unlocker).transfer(optimistic.bondAmount);
+        // Return bond to unlocker using call() instead of transfer()
+        // SECURITY: transfer() only forwards 2300 gas which fails for:
+        // - Smart contract wallets with receive() logic
+        // - After EIP-1884 gas cost changes
+        (bool success, ) = payable(optimistic.unlocker).call{
+            value: optimistic.bondAmount
+        }("");
+        require(success, "ETH transfer failed");
 
         emit OptimisticUnlockFinalized(lockId, optimistic.unlocker);
     }
@@ -516,9 +522,11 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         // Verify the conflict proof is valid
         _verifyProof(lock, conflictProof);
 
-        // Slash bond to challenger
+        // Slash bond to challenger using call() instead of transfer()
+        // SECURITY: transfer() only forwards 2300 gas which fails for smart contract wallets
         uint256 bondToSlash = optimistic.bondAmount;
-        payable(msg.sender).transfer(bondToSlash);
+        (bool success, ) = payable(msg.sender).call{value: bondToSlash}("");
+        require(success, "Bond transfer failed");
 
         emit LockDisputed(
             lockId,
@@ -782,18 +790,29 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
 
     /**
      * @notice Generates a domain separator from components
+     * @dev Uses explicit masking to prevent LLVM optimization bugs on L2s
+     * SECURITY: This pattern avoids the rotate-left optimization that caused
+     * the Aave/ZKsync vulnerability where 64-bit constants were incorrectly
+     * used in 256-bit register operations.
      */
     function generateDomainSeparator(
         uint16 chainId,
         uint16 appId,
         uint32 epoch
     ) public pure returns (bytes32) {
-        return
-            bytes32(
-                (uint256(chainId) << 224) |
-                    (uint256(appId) << 208) |
-                    (uint256(epoch) << 176)
-            );
+        // Use explicit masking and separate operations to prevent LLVM optimization issues
+        // Each operation is isolated to avoid peephole optimization combining them
+        uint256 result = 0;
+        uint256 chainIdMasked = uint256(chainId) & 0xFFFF;
+        uint256 appIdMasked = uint256(appId) & 0xFFFF;
+        uint256 epochMasked = uint256(epoch) & 0xFFFFFFFF;
+
+        // Perform shifts separately with explicit 256-bit context
+        result = result | (chainIdMasked << 224);
+        result = result | (appIdMasked << 208);
+        result = result | (epochMasked << 176);
+
+        return bytes32(result);
     }
 
     /**
