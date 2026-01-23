@@ -78,7 +78,9 @@ contract PILv2Orchestrator is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant ORCHESTRATOR_ROLE = keccak256("ORCHESTRATOR_ROLE");
+    /// @dev keccak256("ORCHESTRATOR_ROLE")
+    bytes32 public constant ORCHESTRATOR_ROLE =
+        0xe098e2e7d2d4d3ca0e3877ceaaf3cdfbd47483f6699688ad12b1d6732deef10b;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -349,7 +351,9 @@ contract PILv2Orchestrator is AccessControl, ReentrancyGuard, Pausable {
 
         containerToCommitment[containerId] = commitmentId;
         containerToDomain[containerId] = domainId;
-        totalTransitions++;
+        unchecked {
+            ++totalTransitions;
+        }
 
         emit CoordinatedTransitionCreated(
             transitionId,

@@ -32,10 +32,15 @@ contract AggregateDisclosureAlgebra is
                                ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("DISCLOSURE_ADMIN_ROLE")
     bytes32 public constant DISCLOSURE_ADMIN_ROLE =
-        keccak256("DISCLOSURE_ADMIN_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
+        0xcf8a7913f3d76add8de8addd55ce46aa0b0a2aef6d435d5bb47659cb1ffeb0c8;
+    /// @dev keccak256("VERIFIER_ROLE")
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
+    /// @dev keccak256("ISSUER_ROLE")
+    bytes32 public constant ISSUER_ROLE =
+        0x114e74f6ea3bd819998f78687bfcb11b140da08e9b7d222fa9c1f1ba1f2aa122;
 
     /*//////////////////////////////////////////////////////////////
                                TYPES
@@ -290,7 +295,9 @@ contract AggregateDisclosureAlgebra is
 
         subjectCredentials[subject].push(credentialId);
         issuerCredentials[msg.sender].push(credentialId);
-        totalCredentials++;
+        unchecked {
+            ++totalCredentials;
+        }
 
         emit CredentialIssued(credentialId, msg.sender, subject, attributeHash);
 
@@ -368,7 +375,9 @@ contract AggregateDisclosureAlgebra is
         });
 
         subjectDisclosures[msg.sender].push(disclosureId);
-        totalDisclosures++;
+        unchecked {
+            ++totalDisclosures;
+        }
 
         emit SelectiveDisclosureCreated(disclosureId, credentialId, verifier);
 
@@ -438,7 +447,7 @@ contract AggregateDisclosureAlgebra is
 
         // Verify all disclosures exist and belong to caller
         bytes32 aggregateProof = bytes32(0);
-        for (uint256 i = 0; i < disclosureIds.length; i++) {
+        for (uint256 i = 0; i < disclosureIds.length; ) {
             SelectiveDisclosure storage disclosure = disclosures[
                 disclosureIds[i]
             ];
@@ -448,6 +457,9 @@ contract AggregateDisclosureAlgebra is
             aggregateProof = keccak256(
                 abi.encodePacked(aggregateProof, disclosure.proof)
             );
+            unchecked {
+                ++i;
+            }
         }
 
         aggregateId = keccak256(
@@ -471,7 +483,9 @@ contract AggregateDisclosureAlgebra is
             isVerified: false
         });
 
-        totalAggregates++;
+        unchecked {
+            ++totalAggregates;
+        }
 
         emit AggregateDisclosureCreated(
             aggregateId,
@@ -496,7 +510,7 @@ contract AggregateDisclosureAlgebra is
         uint256 validCount = 0;
         uint256 totalWeight = 0;
 
-        for (uint256 i = 0; i < aggregate.disclosureIds.length; i++) {
+        for (uint256 i = 0; i < aggregate.disclosureIds.length; ) {
             SelectiveDisclosure storage disclosure = disclosures[
                 aggregate.disclosureIds[i]
             ];
@@ -508,8 +522,13 @@ contract AggregateDisclosureAlgebra is
                     block.timestamp <= disclosure.expiresAt);
 
             if (disclosureValid) {
-                validCount++;
+                unchecked {
+                    ++validCount;
+                }
                 totalWeight += 1; // Could be weighted
+            }
+            unchecked {
+                ++i;
             }
         }
 

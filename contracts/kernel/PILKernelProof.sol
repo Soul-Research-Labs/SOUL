@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "../interfaces/IProofVerifier.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
 
 /**
  * @title PILKernelProof
@@ -76,11 +76,18 @@ contract PILKernelProof is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    /// @dev Pre-computed role hashes for gas optimization
-    bytes32 public constant KERNEL_ADMIN_ROLE = keccak256("KERNEL_ADMIN_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant BACKEND_ROLE = keccak256("BACKEND_ROLE");
-    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+    /// @dev Pre-computed keccak256("KERNEL_ADMIN_ROLE") for gas savings
+    bytes32 public constant KERNEL_ADMIN_ROLE =
+        0xd13a966c52b17d5e3db9215195660b8fb13538948d42ea8ccb681240e48b9474;
+    /// @dev Pre-computed keccak256("VERIFIER_ROLE") for gas savings
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
+    /// @dev Pre-computed keccak256("BACKEND_ROLE") for gas savings
+    bytes32 public constant BACKEND_ROLE =
+        0x25cf2b509f2a7f322675b2a5322b182f44ad2c03ac941a0af17c9b178f5d5d5f;
+    /// @dev Pre-computed keccak256("EMERGENCY_ROLE") for gas savings
+    bytes32 public constant EMERGENCY_ROLE =
+        0xbf233dd2aafeb4d50879c4aa5c81e96d92f6e6945c906a58f9f2d1c1631b4b26;
 
     /*//////////////////////////////////////////////////////////////
                               CUSTOM ERRORS
@@ -547,7 +554,7 @@ contract PILKernelProof is AccessControl, ReentrancyGuard, Pausable {
      */
     function _verifyContainerWellFormed(
         ConfidentialContainerWrapper calldata container
-    ) internal view returns (bool) {
+    ) internal pure returns (bool) {
         // Container must have valid ID
         if (container.containerId == bytes32(0)) return false;
 
@@ -596,16 +603,11 @@ contract PILKernelProof is AccessControl, ReentrancyGuard, Pausable {
     function _verifyDomainSeparation(
         uint256 sourceChainId,
         uint256 destChainId,
-        bytes32 domainSeparator
+        bytes32 /* domainSeparator */
     ) internal view returns (bool) {
         // Source and dest must be different for cross-chain
         if (sourceChainId == destChainId && sourceChainId != CHAIN_ID)
             return false;
-
-        // Domain separator must include chain info
-        bytes32 expectedSeparator = keccak256(
-            abi.encodePacked("PIL_DOMAIN", sourceChainId, destChainId)
-        );
 
         // For internal operations, allow self-domain
         if (sourceChainId == CHAIN_ID && destChainId == CHAIN_ID) {
@@ -621,7 +623,7 @@ contract PILKernelProof is AccessControl, ReentrancyGuard, Pausable {
      */
     function _verifyNullifierDerivation(
         bytes32 nullifier,
-        bytes32 stateCommitment
+        bytes32 /* stateCommitment */
     ) internal view returns (bool) {
         // Nullifier must not already be used
         if (consumedNullifiers[nullifier]) return false;
@@ -658,7 +660,7 @@ contract PILKernelProof is AccessControl, ReentrancyGuard, Pausable {
      */
     function _verifyControlFlowHidden(
         bytes32 executionCommitment
-    ) internal view returns (bool) {
+    ) internal pure returns (bool) {
         // Execution commitment hides which functions ran
         // In production, verify the commitment reveals nothing about:
         // - which backend was chosen

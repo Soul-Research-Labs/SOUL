@@ -695,16 +695,11 @@ contract SemanticEquivalenceVerifier is
      * @notice Verify input mapping between source and target
      */
     function _verifyInputMapping(
-        bytes32 sourceCircuitHash,
-        bytes32 targetCircuitHash,
+        bytes32 /* sourceCircuitHash */,
+        bytes32 /* targetCircuitHash */,
         bytes32[] calldata sourceInputs,
         bytes32[] calldata targetInputs
-    ) internal view returns (bool valid, uint256 confidence) {
-        // Find registered mapping
-        bytes32 mappingId = keccak256(
-            abi.encodePacked(sourceCircuitHash, targetCircuitHash)
-        );
-
+    ) internal pure returns (bool valid, uint256 confidence) {
         // Simplified verification - in production would verify transforms
         if (sourceInputs.length == 0 && targetInputs.length == 0) {
             return (true, 10000);
@@ -751,8 +746,8 @@ contract SemanticEquivalenceVerifier is
      */
     function _checkCompositionRules(
         SemanticDomain domain,
-        bytes32 sourceProofHash,
-        bytes32 targetProofHash
+        bytes32 /* sourceProofHash */,
+        bytes32 /* targetProofHash */
     ) internal view returns (bool valid, uint256 confidence) {
         bytes32[] storage rules = domainCompositionRules[domain];
 

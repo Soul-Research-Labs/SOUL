@@ -210,4 +210,38 @@ contract SPTCHarness is AccessControl, ReentrancyGuard, Pausable {
     ) external view returns (address) {
         return certificates[certificateId].translator;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        EMERGENCY WITHDRAWAL
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emergency withdraw ETH locked in contract (staked funds)
+    /// @param recipient Address to receive withdrawn ETH
+    /// @param amount Amount of ETH to withdraw
+    /// @dev Only callable by admin when paused
+    function emergencyWithdrawETH(
+        address payable recipient,
+        uint256 amount
+    ) external onlyRole(ADMIN_ROLE) whenPaused nonReentrant {
+        require(recipient != address(0), "Invalid recipient");
+        require(amount <= address(this).balance, "Insufficient balance");
+
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit EmergencyWithdrawal(recipient, amount);
+    }
+
+    /// @notice Withdraw stake for a translator (normal withdrawal)
+    /// @param amount Amount to withdraw
+    function withdrawStake(uint256 amount) external nonReentrant {
+        require(translatorStake[msg.sender] >= amount, "Insufficient stake");
+        translatorStake[msg.sender] -= amount;
+
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Transfer failed");
+    }
+
+    /// @notice Emitted when emergency withdrawal occurs
+    event EmergencyWithdrawal(address indexed recipient, uint256 amount);
 }

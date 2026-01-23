@@ -25,10 +25,12 @@ contract ExecutionAgnosticStateCommitments is AccessControl, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("BACKEND_ADMIN_ROLE")
     bytes32 public constant BACKEND_ADMIN_ROLE =
-        keccak256("BACKEND_ADMIN_ROLE");
+        0x725cc3989e149a767397970d298615c4843c213a88534e17f727f3ad663e6a6f;
+    /// @dev keccak256("COMMITMENT_REGISTRAR_ROLE")
     bytes32 public constant COMMITMENT_REGISTRAR_ROLE =
-        keccak256("COMMITMENT_REGISTRAR_ROLE");
+        0x151a2cff15004c51e0b392e3be007c921d4a445972a9b55ce8e34937e0cb1591;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

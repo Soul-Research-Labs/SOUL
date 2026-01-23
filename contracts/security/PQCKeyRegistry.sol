@@ -36,11 +36,15 @@ contract PQCKeyRegistry is
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("REGISTRY_ADMIN_ROLE") for gas savings
     bytes32 public constant REGISTRY_ADMIN_ROLE =
-        keccak256("REGISTRY_ADMIN_ROLE");
-    bytes32 public constant KEY_ATTESTOR_ROLE = keccak256("KEY_ATTESTOR_ROLE");
+        0xbb28eb1a0cfabcecf96003fab466159bc2e051e49d79baf049890044e9072440;
+    /// @dev Pre-computed keccak256("KEY_ATTESTOR_ROLE") for gas savings
+    bytes32 public constant KEY_ATTESTOR_ROLE =
+        0x789c9933ed0862be9f549da233ba2447ef400cf43ba93a68de630e9346c13f7d;
+    /// @dev Pre-computed keccak256("ROTATION_MANAGER_ROLE") for gas savings
     bytes32 public constant ROTATION_MANAGER_ROLE =
-        keccak256("ROTATION_MANAGER_ROLE");
+        0xe09e786ceb5d4f519b950a2ea30bb18e01da1fad47e03db3077949924541f102;
 
     /*//////////////////////////////////////////////////////////////
                               CONSTANTS

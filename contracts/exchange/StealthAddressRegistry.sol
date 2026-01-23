@@ -29,8 +29,12 @@ contract StealthAddressRegistry is AccessControl, ReentrancyGuard, Pausable {
                                 ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-    bytes32 public constant ANNOUNCER_ROLE = keccak256("ANNOUNCER_ROLE");
+    /// @dev Pre-computed keccak256("OPERATOR_ROLE") for gas savings
+    bytes32 public constant OPERATOR_ROLE =
+        0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929;
+    /// @dev Pre-computed keccak256("ANNOUNCER_ROLE") for gas savings
+    bytes32 public constant ANNOUNCER_ROLE =
+        0x6e925cbf9b246ec609b2c956a4ec0074fde4bcbc1f65aadcebf89efbd7f60a6a;
 
     /*//////////////////////////////////////////////////////////////
                                STRUCTS

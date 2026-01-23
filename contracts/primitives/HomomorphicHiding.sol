@@ -217,7 +217,9 @@ contract HomomorphicHiding is AccessControl, ReentrancyGuard, Pausable {
         });
 
         ownerCommitments[msg.sender].push(commitmentId);
-        totalCommitments++;
+        unchecked {
+            ++totalCommitments;
+        }
 
         emit CommitmentCreated(commitmentId, msg.sender, commitment);
 
@@ -318,7 +320,9 @@ contract HomomorphicHiding is AccessControl, ReentrancyGuard, Pausable {
             timestamp: uint64(block.timestamp)
         });
 
-        totalOperations++;
+        unchecked {
+            ++totalOperations;
+        }
 
         emit HomomorphicOperationPerformed(
             resultId,
@@ -386,7 +390,9 @@ contract HomomorphicHiding is AccessControl, ReentrancyGuard, Pausable {
             timestamp: uint64(block.timestamp)
         });
 
-        totalOperations++;
+        unchecked {
+            ++totalOperations;
+        }
 
         emit HomomorphicOperationPerformed(
             resultId,
@@ -443,7 +449,9 @@ contract HomomorphicHiding is AccessControl, ReentrancyGuard, Pausable {
             timestamp: uint64(block.timestamp)
         });
 
-        totalOperations++;
+        unchecked {
+            ++totalOperations;
+        }
 
         emit HomomorphicOperationPerformed(
             resultId,
@@ -543,13 +551,16 @@ contract HomomorphicHiding is AccessControl, ReentrancyGuard, Pausable {
     ) external whenNotPaused returns (bytes32 proofId) {
         // Verify all commitments exist and are active
         bytes32 aggregate = bytes32(0);
-        for (uint256 i = 0; i < commitmentIds.length; i++) {
+        for (uint256 i = 0; i < commitmentIds.length; ) {
             HiddenCommitment storage comm = commitments[commitmentIds[i]];
             if (comm.createdAt == 0) revert CommitmentNotFound();
             if (!comm.isActive) revert CommitmentInactive();
 
             // Build aggregate commitment
             aggregate = keccak256(abi.encodePacked(aggregate, comm.commitment));
+            unchecked {
+                ++i;
+            }
         }
 
         proofId = keccak256(

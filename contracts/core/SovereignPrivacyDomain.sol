@@ -36,15 +36,67 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  */
 contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
     /*//////////////////////////////////////////////////////////////
+                              CUSTOM ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Thrown when address is zero
+    error ZeroAddress();
+    /// @notice Thrown when domain already exists
+    error DomainAlreadyExists(bytes32 domainId);
+    /// @notice Thrown when domain is inactive
+    error DomainInactive(bytes32 domainId);
+    /// @notice Thrown when caller is not domain admin
+    error NotDomainAdmin(bytes32 domainId, address caller);
+    /// @notice Thrown when membership is closed
+    error MembershipClosed(bytes32 domainId);
+    /// @notice Thrown when membership fee is insufficient
+    error InsufficientMembershipFee(uint256 required, uint256 provided);
+    /// @notice Thrown when domain is full
+    error DomainFull(bytes32 domainId, uint256 maxMembers);
+    /// @notice Thrown when address is already a member
+    error AlreadyMember(bytes32 domainId, address member);
+    /// @notice Thrown when address is not a member
+    error NotMember(bytes32 domainId, address member);
+    /// @notice Thrown when policy already exists
+    error PolicyAlreadyExists(bytes32 policyId);
+    /// @notice Thrown when policy is inactive
+    error PolicyInactive(bytes32 policyId);
+    /// @notice Thrown when not authorized
+    error NotAuthorized(address caller);
+    /// @notice Thrown when execution already completed
+    error ExecutionAlreadyCompleted(bytes32 executionId);
+    /// @notice Thrown when kernel verification fails
+    error KernelVerificationFailed();
+    /// @notice Thrown when bridge is inactive
+    error BridgeInactive(bytes32 bridgeId);
+    /// @notice Thrown when policy not allowed for member
+    error PolicyNotAllowed(bytes32 domainId, address member, bytes32 policyId);
+    /// @notice Thrown when invalid recipient
+    error InvalidRecipient();
+    /// @notice Thrown when insufficient balance
+    error InsufficientBalance(uint256 required, uint256 available);
+    /// @notice Thrown when transfer fails
+    error TransferFailed();
+
+    /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant DOMAIN_ADMIN_ROLE = keccak256("DOMAIN_ADMIN_ROLE");
+    /// @dev Pre-computed keccak256("DOMAIN_ADMIN_ROLE") for gas savings
+    bytes32 public constant DOMAIN_ADMIN_ROLE =
+        0x8601f95000f9db10f888b55a4dcf204d495f7b7e45e94a5425cd4562bae08468;
+    /// @dev Pre-computed keccak256("POLICY_MANAGER_ROLE") for gas savings
     bytes32 public constant POLICY_MANAGER_ROLE =
-        keccak256("POLICY_MANAGER_ROLE");
-    bytes32 public constant MEMBER_ROLE = keccak256("MEMBER_ROLE");
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-    bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
+        0x2724e1c963eb1465b51230910d2ca7be74b71883f8cab72076d8c12e086c2b48;
+    /// @dev Pre-computed keccak256("MEMBER_ROLE") for gas savings
+    bytes32 public constant MEMBER_ROLE =
+        0x829b824e2329e205435d941c9f13baf578548505283d29261236d8e6596d4636;
+    /// @dev Pre-computed keccak256("OPERATOR_ROLE") for gas savings
+    bytes32 public constant OPERATOR_ROLE =
+        0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929;
+    /// @dev Pre-computed keccak256("COMPLIANCE_ROLE") for gas savings
+    bytes32 public constant COMPLIANCE_ROLE =
+        0x442a94f1a1fac79af32856af2a64f63648cfa2ef3b98610a5bb7cbec4cee6985;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -236,10 +288,13 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
     mapping(bytes32 => DomainBridge) public bridges;
     mapping(bytes32 => bytes32[]) public domainBridges;
 
-    // Inherited security (from Soul kernel)
-    address public kernelVerifier;
-    address public transportLayer;
-    address public nullifierRegistry;
+    // Inherited security (from Soul kernel) - IMMUTABLE for security
+    /// @notice Kernel verifier contract address (immutable for security)
+    address public immutable kernelVerifier;
+    /// @notice Transport layer contract address (immutable for security)
+    address public immutable transportLayer;
+    /// @notice Nullifier registry contract address (immutable for security)
+    address public immutable nullifierRegistry;
 
     // Global stats
     uint256 public totalDomains;
@@ -311,12 +366,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         address _nullifierRegistry
     ) {
         // Security: Validate all constructor parameters
-        require(_kernelVerifier != address(0), "SPD: zero kernel verifier");
-        require(_transportLayer != address(0), "SPD: zero transport layer");
-        require(
-            _nullifierRegistry != address(0),
-            "SPD: zero nullifier registry"
-        );
+        if (_kernelVerifier == address(0)) revert ZeroAddress();
+        if (_transportLayer == address(0)) revert ZeroAddress();
+        if (_nullifierRegistry == address(0)) revert ZeroAddress();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
 
@@ -349,7 +401,8 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
             abi.encodePacked(name, msg.sender, block.timestamp, totalDomains)
         );
 
-        require(domains[domainId].createdAt == 0, "SPD: domain exists");
+        if (domains[domainId].createdAt != 0)
+            revert DomainAlreadyExists(domainId);
 
         domains[domainId] = DomainConfig({
             domainId: domainId,
@@ -378,7 +431,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         });
 
         domainList.push(domainId);
-        totalDomains++;
+        unchecked {
+            ++totalDomains;
+        }
 
         // Add creator as admin
         _addMember(domainId, msg.sender, keccak256("ADMIN"), 0);
@@ -400,10 +455,11 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         uint256 maxExecutionGas,
         DisclosureType defaultDisclosure
     ) external {
-        require(_isDomainAdmin(domainId, msg.sender), "SPD: not admin");
+        if (!_isDomainAdmin(domainId, msg.sender))
+            revert NotDomainAdmin(domainId, msg.sender);
 
         DomainConfig storage config = domains[domainId];
-        require(config.active, "SPD: domain inactive");
+        if (!config.active) revert DomainInactive(domainId);
 
         config.backendPreference = backendPreference;
         config.maxExecutionGas = maxExecutionGas;
@@ -426,7 +482,8 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bool requiresKYC,
         bool requiresAuditLog
     ) external {
-        require(_isDomainAdmin(domainId, msg.sender), "SPD: not admin");
+        if (!_isDomainAdmin(domainId, msg.sender))
+            revert NotDomainAdmin(domainId, msg.sender);
 
         DomainConfig storage config = domains[domainId];
         config.complianceFramework = framework;
@@ -452,7 +509,8 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 accessLevel,
         uint64 duration
     ) external {
-        require(_isDomainAdmin(domainId, msg.sender), "SPD: not admin");
+        if (!_isDomainAdmin(domainId, msg.sender))
+            revert NotDomainAdmin(domainId, msg.sender);
         _addMember(domainId, member, accessLevel, duration);
     }
 
@@ -466,10 +524,12 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 memberCommitment
     ) external payable whenNotPaused {
         DomainConfig storage config = domains[domainId];
-        require(config.active, "SPD: domain inactive");
-        require(config.openMembership, "SPD: closed membership");
-        require(msg.value >= config.membershipFee, "SPD: insufficient fee");
-        require(memberCount[domainId] < config.maxMembers, "SPD: domain full");
+        if (!config.active) revert DomainInactive(domainId);
+        if (!config.openMembership) revert MembershipClosed(domainId);
+        if (msg.value < config.membershipFee)
+            revert InsufficientMembershipFee(config.membershipFee, msg.value);
+        if (memberCount[domainId] >= config.maxMembers)
+            revert DomainFull(domainId, config.maxMembers);
 
         _addMemberWithCommitment(domainId, msg.sender, memberCommitment, 0);
     }
@@ -480,25 +540,34 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
      * @param member Member to remove
      */
     function removeMember(bytes32 domainId, address member) external {
-        require(_isDomainAdmin(domainId, msg.sender), "SPD: not admin");
+        if (!_isDomainAdmin(domainId, msg.sender))
+            revert NotDomainAdmin(domainId, msg.sender);
 
         Member storage m = members[domainId][member];
-        require(m.active, "SPD: not a member");
+        if (!m.active) revert NotMember(domainId, member);
 
         m.active = false;
-        memberCount[domainId]--;
-        totalMembers--;
+        unchecked {
+            --memberCount[domainId];
+            --totalMembers;
+        }
 
         emit MemberRemoved(domainId, member);
     }
 
+    /// @notice Internal function to add a member to a domain
+    /// @param domainId The domain identifier
+    /// @param member The address to add as member
+    /// @param accessLevel The access level hash for the member
+    /// @param duration Membership duration in seconds (0 = permanent)
     function _addMember(
         bytes32 domainId,
         address member,
         bytes32 accessLevel,
         uint64 duration
     ) internal {
-        require(!members[domainId][member].active, "SPD: already member");
+        if (members[domainId][member].active)
+            revert AlreadyMember(domainId, member);
 
         uint64 expiresAt = duration > 0
             ? uint64(block.timestamp) + duration
@@ -515,19 +584,27 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         });
 
         domainMembers[domainId].push(member);
-        memberCount[domainId]++;
-        totalMembers++;
+        unchecked {
+            ++memberCount[domainId];
+            ++totalMembers;
+        }
 
         emit MemberAdded(domainId, member, accessLevel);
     }
 
+    /// @notice Internal function to add a member with privacy-preserving commitment
+    /// @param domainId The domain identifier
+    /// @param member The address to add as member
+    /// @param commitment Privacy-preserving membership commitment
+    /// @param duration Membership duration in seconds (0 = permanent)
     function _addMemberWithCommitment(
         bytes32 domainId,
         address member,
         bytes32 commitment,
         uint64 duration
     ) internal {
-        require(!members[domainId][member].active, "SPD: already member");
+        if (members[domainId][member].active)
+            revert AlreadyMember(domainId, member);
 
         uint64 expiresAt = duration > 0
             ? uint64(block.timestamp) + duration
@@ -544,8 +621,10 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         });
 
         domainMembers[domainId].push(member);
-        memberCount[domainId]++;
-        totalMembers++;
+        unchecked {
+            ++memberCount[domainId];
+            ++totalMembers;
+        }
 
         emit MemberAdded(domainId, member, keccak256("MEMBER"));
     }
@@ -572,15 +651,17 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bool encryptOutputs,
         bool auditRequired
     ) external returns (bytes32 policyId) {
-        require(
-            _isDomainAdmin(domainId, msg.sender) ||
-                hasRole(POLICY_MANAGER_ROLE, msg.sender),
-            "SPD: not authorized"
-        );
+        if (
+            !_isDomainAdmin(domainId, msg.sender) &&
+            !hasRole(POLICY_MANAGER_ROLE, msg.sender)
+        ) {
+            revert NotAuthorized(msg.sender);
+        }
 
         policyId = keccak256(abi.encodePacked(domainId, name, block.timestamp));
 
-        require(policies[policyId].createdAt == 0, "SPD: policy exists");
+        if (policies[policyId].createdAt != 0)
+            revert PolicyAlreadyExists(policyId);
 
         policies[policyId] = PrivacyPolicy({
             policyId: policyId,
@@ -602,7 +683,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         });
 
         domainPolicies[domainId].push(policyId);
-        totalPolicies++;
+        unchecked {
+            ++totalPolicies;
+        }
 
         emit PolicyCreated(domainId, policyId, name);
     }
@@ -619,8 +702,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         uint8 minAccessLevel
     ) external {
         PrivacyPolicy storage policy = policies[policyId];
-        require(policy.active, "SPD: policy inactive");
-        require(_isDomainAdmin(policy.domainId, msg.sender), "SPD: not admin");
+        if (!policy.active) revert PolicyInactive(policyId);
+        if (!_isDomainAdmin(policy.domainId, msg.sender))
+            revert NotDomainAdmin(policy.domainId, msg.sender);
 
         policy.accessMerkleRoot = accessMerkleRoot;
         policy.minAccessLevel = minAccessLevel;
@@ -640,8 +724,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         uint8 threshold
     ) external {
         PrivacyPolicy storage policy = policies[policyId];
-        require(policy.active, "SPD: policy inactive");
-        require(_isDomainAdmin(policy.domainId, msg.sender), "SPD: not admin");
+        if (!policy.active) revert PolicyInactive(policyId);
+        if (!_isDomainAdmin(policy.domainId, msg.sender))
+            revert NotDomainAdmin(policy.domainId, msg.sender);
 
         policy.disclosureCondition = condition;
         policy.disclosureThreshold = threshold;
@@ -665,11 +750,11 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 policyId,
         bytes32 inputCommitment
     ) external whenNotPaused nonReentrant returns (bytes32 executionId) {
-        require(_isMember(domainId, msg.sender), "SPD: not member");
-        require(
-            _canUsePolicy(domainId, msg.sender, policyId),
-            "SPD: policy not allowed"
-        );
+        if (!_isMember(domainId, msg.sender))
+            revert NotMember(domainId, msg.sender);
+        if (!_canUsePolicy(domainId, msg.sender, policyId)) {
+            revert PolicyNotAllowed(domainId, msg.sender, policyId);
+        }
 
         executionId = keccak256(
             abi.encodePacked(
@@ -698,7 +783,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         });
 
         domainExecutions[domainId].push(executionId);
-        totalExecutions++;
+        unchecked {
+            ++totalExecutions;
+        }
 
         emit ExecutionRequested(domainId, executionId, msg.sender);
     }
@@ -717,13 +804,11 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 receiptId
     ) external onlyRole(OPERATOR_ROLE) {
         DomainExecution storage execution = executions[executionId];
-        require(!execution.completed, "SPD: already completed");
+        if (execution.completed) revert ExecutionAlreadyCompleted(executionId);
 
         // Verify proof through kernel (INHERITED - cannot bypass)
-        require(
-            _verifyThroughKernel(proofHash, receiptId),
-            "SPD: kernel verification failed"
-        );
+        if (!_verifyThroughKernel(proofHash, receiptId))
+            revert KernelVerificationFailed();
 
         execution.outputCommitment = outputCommitment;
         execution.proofHash = proofHash;
@@ -771,10 +856,8 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 bridgePolicyHash,
         bool bidirectional
     ) external returns (bytes32 bridgeId) {
-        require(
-            _isDomainAdmin(sourceDomain, msg.sender),
-            "SPD: not source admin"
-        );
+        if (!_isDomainAdmin(sourceDomain, msg.sender))
+            revert NotDomainAdmin(sourceDomain, msg.sender);
         // For bidirectional, also need target admin approval (simplified here)
 
         bridgeId = keccak256(
@@ -811,11 +894,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         bytes32 messageCommitment
     ) external whenNotPaused returns (bytes32 messageId) {
         DomainBridge storage bridge = bridges[bridgeId];
-        require(bridge.active, "SPD: bridge inactive");
-        require(
-            _isMember(bridge.sourceDomain, msg.sender),
-            "SPD: not source member"
-        );
+        if (!bridge.active) revert BridgeInactive(bridgeId);
+        if (!_isMember(bridge.sourceDomain, msg.sender))
+            revert NotMember(bridge.sourceDomain, msg.sender);
 
         messageId = keccak256(
             abi.encodePacked(
@@ -826,7 +907,9 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
             )
         );
 
-        bridge.messageCount++;
+        unchecked {
+            ++bridge.messageCount;
+        }
 
         emit CrossDomainMessage(
             bridgeId,
@@ -891,6 +974,10 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
                           INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Checks if an account is an admin of a domain
+    /// @param domainId The domain identifier
+    /// @param account The address to check
+    /// @return True if the account is an active admin
     function _isDomainAdmin(
         bytes32 domainId,
         address account
@@ -899,6 +986,10 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         return m.active && m.accessLevel == keccak256("ADMIN");
     }
 
+    /// @notice Checks if an account is an active member of a domain
+    /// @param domainId The domain identifier
+    /// @param account The address to check
+    /// @return True if the account is an active, non-expired member
     function _isMember(
         bytes32 domainId,
         address account
@@ -909,6 +1000,11 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         return true;
     }
 
+    /// @notice Checks if a member can use a specific policy
+    /// @param domainId The domain identifier
+    /// @param account The address to check
+    /// @param policyId The policy identifier (bytes32(0) uses default policy)
+    /// @return True if the member can use the policy
     function _canUsePolicy(
         bytes32 domainId,
         address account,
@@ -927,8 +1023,12 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
         Member storage m = members[domainId][account];
         if (m.allowedPolicies.length == 0) return true; // All policies allowed
 
-        for (uint256 i = 0; i < m.allowedPolicies.length; i++) {
+        uint256 len = m.allowedPolicies.length;
+        for (uint256 i = 0; i < len; ) {
             if (m.allowedPolicies[i] == policyId) return true;
+            unchecked {
+                ++i;
+            }
         }
 
         return false;
@@ -938,29 +1038,42 @@ contract SovereignPrivacyDomain is AccessControl, ReentrancyGuard, Pausable {
                             ADMIN FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function setKernelVerifier(
-        address _kernelVerifier
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        kernelVerifier = _kernelVerifier;
-    }
+    // NOTE: setKernelVerifier, setTransportLayer, setNullifierRegistry removed
+    // These addresses are now immutable for enhanced security - they cannot be
+    // changed after deployment, preventing potential admin key compromise attacks
 
-    function setTransportLayer(
-        address _transportLayer
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        transportLayer = _transportLayer;
-    }
-
-    function setNullifierRegistry(
-        address _nullifierRegistry
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        nullifierRegistry = _nullifierRegistry;
-    }
-
+    /// @notice Pauses the contract
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
+    /// @notice Unpauses the contract
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        EMERGENCY WITHDRAWAL
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emergency withdraw ETH locked in contract
+    /// @param recipient Address to receive withdrawn ETH
+    /// @param amount Amount of ETH to withdraw
+    /// @dev Only callable by admin when paused
+    function emergencyWithdrawETH(
+        address payable recipient,
+        uint256 amount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) whenPaused nonReentrant {
+        if (recipient == address(0)) revert InvalidRecipient();
+        if (amount > address(this).balance)
+            revert InsufficientBalance(amount, address(this).balance);
+
+        (bool success, ) = recipient.call{value: amount}("");
+        if (!success) revert TransferFailed();
+
+        emit EmergencyWithdrawal(recipient, amount);
+    }
+
+    /// @notice Emitted when emergency withdrawal occurs
+    event EmergencyWithdrawal(address indexed recipient, uint256 amount);
 }

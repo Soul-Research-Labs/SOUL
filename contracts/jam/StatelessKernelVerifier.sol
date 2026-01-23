@@ -42,9 +42,12 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("VERIFIER_ADMIN_ROLE") for gas savings
     bytes32 public constant VERIFIER_ADMIN_ROLE =
-        keccak256("VERIFIER_ADMIN_ROLE");
-    bytes32 public constant SUBMITTER_ROLE = keccak256("SUBMITTER_ROLE");
+        0xb194a0b06484f8a501e0bef8877baf2a303f803540f5ddeb9d985c0cd76f3e70;
+    /// @dev Pre-computed keccak256("SUBMITTER_ROLE") for gas savings
+    bytes32 public constant SUBMITTER_ROLE =
+        0xe1a65d1a914580ff6931bc952f0fb26573e9282358a4458bceb9ccc6d923d041;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -306,7 +309,9 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
             registeredAt: uint64(block.timestamp)
         });
 
-        totalKeys++;
+        unchecked {
+            ++totalKeys;
+        }
 
         emit VerifyingKeyRegistered(keyId, proofSystem, circuitHash);
     }
@@ -364,7 +369,9 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
             verifiedAt: 0
         });
 
-        totalRequests++;
+        unchecked {
+            ++totalRequests;
+        }
 
         emit VerificationRequested(requestId, verifyingKeyId, nullifier);
     }
@@ -427,10 +434,14 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
         // Mark nullifier as used if valid
         if (valid) {
             usedNullifiers[request.nullifier] = true;
-            totalVerified++;
+            unchecked {
+                ++totalVerified;
+            }
             emit NullifierUsed(request.nullifier, requestId);
         } else {
-            totalRejected++;
+            unchecked {
+                ++totalRejected;
+            }
         }
 
         emit VerificationCompleted(
@@ -493,13 +504,19 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
         // Mark nullifier
         if (valid) {
             usedNullifiers[proof.nullifier] = true;
-            totalVerified++;
+            unchecked {
+                ++totalVerified;
+            }
             emit NullifierUsed(proof.nullifier, requestId);
         } else {
-            totalRejected++;
+            unchecked {
+                ++totalRejected;
+            }
         }
 
-        totalRequests++;
+        unchecked {
+            ++totalRequests;
+        }
 
         emit VerificationCompleted(
             requestId,
@@ -557,7 +574,9 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
             verifiedAt: 0
         });
 
-        totalBatches++;
+        unchecked {
+            ++totalBatches;
+        }
 
         return batchId;
     }
@@ -578,22 +597,29 @@ contract StatelessKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
         uint256 validCount = 0;
         uint256 invalidCount = 0;
 
-        for (uint256 i = 0; i < batch.count; i++) {
+        for (uint256 i = 0; i < batch.count; ) {
             VerificationRequest storage req = requests[batch.requestIds[i]];
 
             if (validFlags[i] && !usedNullifiers[req.nullifier]) {
                 req.status = RequestStatus.Verified;
                 usedNullifiers[req.nullifier] = true;
-                validCount++;
-                totalVerified++;
+                unchecked {
+                    ++validCount;
+                    ++totalVerified;
+                }
                 emit NullifierUsed(req.nullifier, batch.requestIds[i]);
             } else {
                 req.status = RequestStatus.Rejected;
-                invalidCount++;
-                totalRejected++;
+                unchecked {
+                    ++invalidCount;
+                    ++totalRejected;
+                }
             }
 
             req.verifiedAt = uint64(block.timestamp);
+            unchecked {
+                ++i;
+            }
         }
 
         batch.verified = true;

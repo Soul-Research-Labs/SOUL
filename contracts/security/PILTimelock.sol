@@ -90,11 +90,11 @@ contract PILTimelock is AccessControl, ReentrancyGuard {
     /// @notice Grace period after ready time (7 days)
     uint256 public constant GRACE_PERIOD = 7 days;
 
-    /// @notice Required confirmations for standard operations
-    uint8 public requiredConfirmations;
+    /// @notice Required confirmations for standard operations (immutable)
+    uint8 public immutable requiredConfirmations;
 
-    /// @notice Required confirmations for emergency operations
-    uint8 public emergencyConfirmations;
+    /// @notice Required confirmations for emergency operations (immutable)
+    uint8 public immutable emergencyConfirmations;
 
     /// @notice Operations storage
     mapping(bytes32 => TimelockOperation) public operations;

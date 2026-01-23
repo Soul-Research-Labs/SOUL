@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title PILGovernance
@@ -53,7 +53,7 @@ contract PILGovernance is AccessControl, ReentrancyGuard {
     uint256 public votingPeriod = 45818; // ~1 week at 13s blocks
     uint256 public proposalThreshold = 100000e18; // 100k tokens to propose
     uint256 public quorumVotes = 4000000e18; // 4M tokens quorum
-    uint256 public timelockDelay = 2 days;
+    uint256 public constant TIMELOCK_DELAY = 2 days;
 
     // State
     uint256 public proposalCount;
@@ -61,8 +61,8 @@ contract PILGovernance is AccessControl, ReentrancyGuard {
     mapping(uint256 => mapping(address => Vote)) public proposalVotes;
     mapping(address => uint256) public latestProposalIds;
 
-    // Governance token
-    address public governanceToken;
+    // Governance token (immutable - set in constructor)
+    address public immutable governanceToken;
 
     // Events
     event ProposalCreated(
@@ -140,7 +140,9 @@ contract PILGovernance is AccessControl, ReentrancyGuard {
         uint256 startBlock = block.number + votingDelay;
         uint256 endBlock = startBlock + votingPeriod;
 
-        proposalCount++;
+        unchecked {
+            ++proposalCount;
+        }
 
         Proposal storage proposal = proposals[proposalId];
         proposal.id = proposalId;
@@ -225,7 +227,7 @@ contract PILGovernance is AccessControl, ReentrancyGuard {
         }
 
         Proposal storage proposal = proposals[proposalId];
-        uint256 eta = block.timestamp + timelockDelay;
+        uint256 eta = block.timestamp + TIMELOCK_DELAY;
         proposal.eta = eta;
 
         emit ProposalQueued(proposalId, eta);
@@ -318,13 +320,11 @@ contract PILGovernance is AccessControl, ReentrancyGuard {
 
     /// @notice Get voting power at a specific block
     function getVotingPower(
-        address account,
-        uint256 blockNumber
-    ) public view returns (uint256) {
+        address /* account */,
+        uint256 /* blockNumber */
+    ) public pure returns (uint256) {
         // In production, query the governance token's getPastVotes
         // For now, return a placeholder
-        blockNumber; // silence warning
-        account;
         return 1000000e18; // Placeholder: 1M tokens
     }
 

@@ -39,9 +39,15 @@ contract SpeculativeExecutionPipeline is
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
-    bytes32 public constant BACKEND_ROLE = keccak256("BACKEND_ROLE");
-    bytes32 public constant ORCHESTRATOR_ROLE = keccak256("ORCHESTRATOR_ROLE");
+    /// @dev Pre-computed keccak256("EXECUTOR_ROLE") for gas savings
+    bytes32 public constant EXECUTOR_ROLE =
+        0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63;
+    /// @dev Pre-computed keccak256("BACKEND_ROLE") for gas savings
+    bytes32 public constant BACKEND_ROLE =
+        0x25cf2b509f2a7f322675b2a5322b182f44ad2c03ac941a0af17c9b178f5d5d5f;
+    /// @dev Pre-computed keccak256("ORCHESTRATOR_ROLE") for gas savings
+    bytes32 public constant ORCHESTRATOR_ROLE =
+        0xe098e2e7d2d4d3ca0e3877ceaaf3cdfbd47483f6699688ad12b1d6732deef10b;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -355,7 +361,9 @@ contract SpeculativeExecutionPipeline is
             allowedBackends: allowedBackends
         });
 
-        totalPipelines++;
+        unchecked {
+            ++totalPipelines;
+        }
 
         emit PipelineCreated(
             pipelineId,
@@ -433,15 +441,19 @@ contract SpeculativeExecutionPipeline is
 
         pipelineAttempts[pipelineId].push(attemptId);
         pipeline.attemptIds.push(attemptId);
-        pipeline.attemptCount++;
-        totalAttempts++;
+        unchecked {
+            ++pipeline.attemptCount;
+            ++totalAttempts;
+        }
 
         // Update pipeline status
         if (pipeline.attemptCount == 1) {
             pipeline.status = PipelineStatus.Executing;
         } else {
             pipeline.status = PipelineStatus.Racing;
-            totalRaces++;
+            unchecked {
+                ++totalRaces;
+            }
         }
 
         emit AttemptStarted(
@@ -498,14 +510,18 @@ contract SpeculativeExecutionPipeline is
         attempt.nullifiersConsumed = nullifiersConsumed;
         attempt.nullifiersProduced = nullifiersProduced;
 
-        pipeline.completedCount++;
+        unchecked {
+            ++pipeline.completedCount;
+        }
 
         // Verify proof
         bool verified = _verifyAttempt(attemptId);
         attempt.verified = verified;
 
         if (verified) {
-            pipeline.verifiedCount++;
+            unchecked {
+                ++pipeline.verifiedCount;
+            }
 
             // First valid proof wins!
             if (pipeline.winningAttemptId == bytes32(0)) {
@@ -517,13 +533,17 @@ contract SpeculativeExecutionPipeline is
 
                 // Update backend stats
                 RegisteredBackend storage backend = backends[msg.sender];
-                backend.totalAttempts++;
-                backend.totalWins++;
+                unchecked {
+                    ++backend.totalAttempts;
+                    ++backend.totalWins;
+                }
                 backend.avgExecutionTime =
                     (backend.avgExecutionTime + executionTime) /
                     2;
 
-                backendWinCount[attempt.backendType]++;
+                unchecked {
+                    ++backendWinCount[attempt.backendType];
+                }
                 backendTotalTime[attempt.backendType] += executionTime;
 
                 emit PipelineResolved(

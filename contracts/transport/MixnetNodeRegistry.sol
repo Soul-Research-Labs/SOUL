@@ -39,9 +39,12 @@ contract MixnetNodeRegistry is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("REGISTRY_ADMIN_ROLE") for gas savings
     bytes32 public constant REGISTRY_ADMIN_ROLE =
-        keccak256("REGISTRY_ADMIN_ROLE");
-    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
+        0xbb28eb1a0cfabcecf96003fab466159bc2e051e49d79baf049890044e9072440;
+    /// @dev Pre-computed keccak256("SLASHER_ROLE") for gas savings
+    bytes32 public constant SLASHER_ROLE =
+        0x12b42e8a160f6064dc959c6f251e3af0750ad213dbecf573b4710d67d6c28e39;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

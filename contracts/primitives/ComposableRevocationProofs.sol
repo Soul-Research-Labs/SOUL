@@ -32,11 +32,15 @@ contract ComposableRevocationProofs is
                                ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("REVOCATION_MANAGER_ROLE")
     bytes32 public constant REVOCATION_MANAGER_ROLE =
-        keccak256("REVOCATION_MANAGER_ROLE");
+        0x02ee075c7da8b2fd2f3c683fd86848a232efcddcc392f4e81fb8fb4f80bc8333;
+    /// @dev keccak256("ACCUMULATOR_OPERATOR_ROLE")
     bytes32 public constant ACCUMULATOR_OPERATOR_ROLE =
-        keccak256("ACCUMULATOR_OPERATOR_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+        0x4859a9a09eae5a428737d4845e8d3a5c48c9e22c00db19e1877c6fe0ef9488d9;
+    /// @dev keccak256("VERIFIER_ROLE")
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
 
     /*//////////////////////////////////////////////////////////////
                                TYPES
@@ -248,7 +252,9 @@ contract ComposableRevocationProofs is
 
         accumulatorHistory[accumulatorId][1] = initialValue;
         activeAccumulators.push(accumulatorId);
-        totalAccumulators++;
+        unchecked {
+            ++totalAccumulators;
+        }
 
         emit AccumulatorCreated(accumulatorId, initialValue);
 
@@ -304,14 +310,18 @@ contract ComposableRevocationProofs is
         accumulator.currentValue = keccak256(
             abi.encodePacked(accumulator.currentValue, credentialHash)
         );
-        accumulator.version++;
-        accumulator.elementCount++;
+        unchecked {
+            ++accumulator.version;
+            ++accumulator.elementCount;
+        }
         accumulator.lastUpdated = uint64(block.timestamp);
 
         accumulatorHistory[accumulatorId][accumulator.version] = accumulator
             .currentValue;
         isRevoked[accumulatorId][credentialHash] = true;
-        totalRevocations++;
+        unchecked {
+            ++totalRevocations;
+        }
 
         emit CredentialRevoked(entryId, accumulatorId, credentialHash);
         emit AccumulatorUpdated(
@@ -343,7 +353,7 @@ contract ComposableRevocationProofs is
         accumulator.previousValue = accumulator.currentValue;
         bytes32 newValue = accumulator.currentValue;
 
-        for (uint256 i = 0; i < credentialHashes.length; i++) {
+        for (uint256 i = 0; i < credentialHashes.length; ) {
             if (!isRevoked[accumulatorId][credentialHashes[i]]) {
                 bytes32 entryId = keccak256(
                     abi.encodePacked(
@@ -369,14 +379,19 @@ contract ComposableRevocationProofs is
                     abi.encodePacked(newValue, credentialHashes[i])
                 );
                 isRevoked[accumulatorId][credentialHashes[i]] = true;
-                accumulator.elementCount++;
-                totalRevocations++;
+                unchecked {
+                    ++accumulator.elementCount;
+                    ++totalRevocations;
+                }
 
                 emit CredentialRevoked(
                     entryId,
                     accumulatorId,
                     credentialHashes[i]
                 );
+            }
+            unchecked {
+                ++i;
             }
         }
 
@@ -416,7 +431,9 @@ contract ComposableRevocationProofs is
                 credentialHash
             )
         );
-        accumulator.version++;
+        unchecked {
+            ++accumulator.version;
+        }
         accumulatorHistory[accumulatorId][accumulator.version] = accumulator
             .currentValue;
 
@@ -471,7 +488,9 @@ contract ComposableRevocationProofs is
             isVerified: false
         });
 
-        totalProofs++;
+        unchecked {
+            ++totalProofs;
+        }
 
         emit NonMembershipProofCreated(proofId, accumulatorId, credentialHash);
 
@@ -595,10 +614,13 @@ contract ComposableRevocationProofs is
 
         // Create composed proof hash
         bytes32 composedProof = keccak256(abi.encodePacked(nmProof.proof));
-        for (uint256 i = 0; i < additionalProofIds.length; i++) {
+        for (uint256 i = 0; i < additionalProofIds.length; ) {
             composedProof = keccak256(
                 abi.encodePacked(composedProof, additionalProofIds[i])
             );
+            unchecked {
+                ++i;
+            }
         }
 
         composableId = keccak256(

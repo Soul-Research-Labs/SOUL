@@ -72,10 +72,15 @@ contract ConfidentialMessageTransport is
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("TRANSPORT_ADMIN_ROLE") for gas savings
     bytes32 public constant TRANSPORT_ADMIN_ROLE =
-        keccak256("TRANSPORT_ADMIN_ROLE");
-    bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
-    bytes32 public constant ENCRYPTOR_ROLE = keccak256("ENCRYPTOR_ROLE");
+        0xfccec22fd01253bbb819c476a2847f887ee3a950583e75dee9e23312caca1650;
+    /// @dev Pre-computed keccak256("RELAYER_ROLE") for gas savings
+    bytes32 public constant RELAYER_ROLE =
+        0xe2b7fb3b832174769106daebcfd6d1970523240dda11281102db9363b83b0dc4;
+    /// @dev Pre-computed keccak256("ENCRYPTOR_ROLE") for gas savings
+    bytes32 public constant ENCRYPTOR_ROLE =
+        0xad38fc56e7cf12436f8636729bfc3ea1f59bbdb38e132fa3e9330c57e2c77c2d;
 
     /*//////////////////////////////////////////////////////////////
                               CUSTOM ERRORS

@@ -150,7 +150,7 @@ contract EthereumL1Bridge is AccessControl, ReentrancyGuard, Pausable {
     uint256 public constant ETHEREUM_CHAIN_ID = 1;
 
     /// @notice Challenge period for optimistic commitments (default: 7 days)
-    uint256 public defaultChallengePeriod = 7 days;
+    uint256 public constant DEFAULT_CHALLENGE_PERIOD = 7 days;
 
     /// @notice Minimum bond for state commitment submission
     uint256 public minSubmissionBond = 0.1 ether;
@@ -775,13 +775,12 @@ contract EthereumL1Bridge is AccessControl, ReentrancyGuard, Pausable {
      * @param sourceChainId The source L2 chain
      * @param proofHash The proof hash
      * @param stateRoot The state root the proof is against
-     * @param proofData The proof data
      */
     function relayProof(
         uint256 sourceChainId,
         bytes32 proofHash,
         bytes32 stateRoot,
-        bytes calldata proofData
+        bytes calldata /* proofData */
     ) external nonReentrant whenNotPaused onlyRole(RELAYER_ROLE) {
         if (l2Configs[sourceChainId].chainId == 0)
             revert ChainNotSupported(sourceChainId);

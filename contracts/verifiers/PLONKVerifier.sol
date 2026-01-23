@@ -87,8 +87,8 @@ contract PLONKVerifier is IProofVerifier {
     /// @notice Whether verification key is initialized
     bool public initialized;
 
-    /// @notice Contract owner
-    address public owner;
+    /// @notice Contract owner (immutable)
+    address public immutable owner;
 
     /*//////////////////////////////////////////////////////////////
                               ERRORS

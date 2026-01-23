@@ -1,15 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {SecurityModule} from "../security/SecurityModule.sol";
 
 /// @title CrossChainProofHubV3
 /// @author PIL Protocol
 /// @notice Production-ready cross-chain proof relay with optimistic verification and dispute resolution
 /// @dev Implements batching, challenge periods, and gas-efficient proof storage
-contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
+///
+/// Security Features:
+/// - Manual circuit breaker (maxProofsPerHour, maxValuePerHour)
+/// - SecurityModule integration (rate limiting, flash loan guard)
+/// - TOCTOU protection via relayerPendingProofs
+/// - Challenge period for optimistic verification
+contract CrossChainProofHubV3 is
+    AccessControl,
+    ReentrancyGuard,
+    Pausable,
+    SecurityModule
+{
     /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
@@ -624,7 +636,7 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
                         INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    error RateLimitExceeded(string reason);
+    error ProofRateLimitExceeded(string reason);
 
     function _submitProof(
         bytes calldata proof,
@@ -643,7 +655,7 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
 
         // CIRCUIT BREAKER: Check rate limits (prevents Ronin/Nomad-style mass drainage)
         if (hourlyProofCount >= maxProofsPerHour) {
-            revert RateLimitExceeded("Max proofs per hour exceeded");
+            revert ProofRateLimitExceeded("Max proofs per hour exceeded");
         }
         unchecked {
             ++hourlyProofCount;
@@ -841,6 +853,8 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Withdraws accumulated fees
     /// @param to Recipient address
     /// @dev Uses nonReentrant to prevent race condition
+    /// @dev Slither: arbitrary-send-eth is expected - admin-only function with role protection
+    // slither-disable-next-line arbitrary-send-eth
     function withdrawFees(
         address to
     ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -863,6 +877,48 @@ contract CrossChainProofHubV3 is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Unpauses the contract
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    // ============ Security Admin Functions ============
+
+    /// @notice Configure SecurityModule rate limiting parameters
+    /// @param window Window duration in seconds
+    /// @param maxActions Max actions per window
+    function setSecurityRateLimitConfig(
+        uint256 window,
+        uint256 maxActions
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setRateLimitConfig(window, maxActions);
+    }
+
+    /// @notice Configure SecurityModule circuit breaker parameters
+    /// @param threshold Volume threshold
+    /// @param cooldown Cooldown period after trip
+    function setSecurityCircuitBreakerConfig(
+        uint256 threshold,
+        uint256 cooldown
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setCircuitBreakerConfig(threshold, cooldown);
+    }
+
+    /// @notice Toggle SecurityModule features on/off
+    function setSecurityModuleFeatures(
+        bool rateLimiting,
+        bool circuitBreakers,
+        bool flashLoanGuard,
+        bool withdrawalLimits
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setSecurityFeatures(
+            rateLimiting,
+            circuitBreakers,
+            flashLoanGuard,
+            withdrawalLimits
+        );
+    }
+
+    /// @notice Emergency reset SecurityModule circuit breaker
+    function resetSecurityCircuitBreaker() external onlyRole(EMERGENCY_ROLE) {
+        _resetCircuitBreaker();
     }
 
     /// @notice Allows contract to receive ETH

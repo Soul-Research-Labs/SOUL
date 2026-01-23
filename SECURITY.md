@@ -61,20 +61,22 @@ We take security seriously. If you discover a security vulnerability within PIL 
 - Documentation errors
 - Non-critical code quality issues
 
-## Bug Bounty Program
+## Internal Security Program
 
-We operate a bug bounty program for responsible disclosure.
+> **Note:** External bug bounty and third-party audits are currently on hold. All security efforts are focused on internal hardening.
 
-### Rewards
+### Internal Security Testing
 
-| Severity | Reward Range |
-|----------|--------------|
-| Critical | $50,000 - $250,000 |
-| High | $10,000 - $50,000 |
-| Medium | $2,000 - $10,000 |
-| Low | $500 - $2,000 |
+| Tool | Purpose | Frequency |
+|------|---------|-----------|
+| Certora | Formal verification | Per release |
+| Slither | Static analysis | Every commit |
+| Echidna | Property fuzzing | Weekly |
+| Halmos | Symbolic execution | Weekly |
+| Foundry Fuzz | Differential testing | Every PR |
+| Mutation Testing | Test quality | Monthly |
 
-### Scope
+### Security Focus Areas
 
 **In Scope:**
 - Smart contracts in `/contracts`
@@ -83,20 +85,10 @@ We operate a bug bounty program for responsible disclosure.
 - Cross-chain message validation
 - Proof verification logic
 
-**Out of Scope:**
-- Third-party dependencies (report to maintainers)
-- Previously reported issues
-- Issues in non-production code
-- Social engineering attacks
-- Denial of service via high gas costs
-
-### Rules
-
-1. Do not exploit vulnerabilities on mainnet
-2. Test only on testnets or local forks
-3. Do not access or modify other users' data
-4. Provide sufficient detail to reproduce
-5. Allow reasonable time for fixes before disclosure
+**Development Only:**
+- All testing on local forks only
+- No mainnet/testnet deployment planned
+- Internal red team exercises
 
 ## Security Measures
 
@@ -112,38 +104,43 @@ We operate a bug bounty program for responsible disclosure.
 
 - Groth16 proofs on BN254 curve
 - Poseidon hash function for circuits
-- Powers of Tau ceremony for trusted setup
+- Post-quantum cryptography (Dilithium, Kyber, SPHINCS+)
 - Formal verification of key invariants
 
 ### Operational Security
 
-- Multi-sig wallets for treasury and admin
-- Hardware security modules for key management
-- Regular security audits (quarterly)
-- Continuous monitoring with Forta agents
+- Role-based access control (RBAC)
+- Emergency withdrawal mechanisms
+- Continuous automated security testing
 - Incident response procedures documented
 
-## Audit Reports
+## Security Roadmap
 
-| Auditor | Date | Scope | Report |
-|---------|------|-------|--------|
-| TBD | TBD | Core Contracts | [Link] |
-| TBD | TBD | Circuit Security | [Link] |
+See [docs/SECURITY_ROADMAP.md](./docs/SECURITY_ROADMAP.md) for the comprehensive security hardening plan.
 
-## Responsible Disclosure
+### Current Phase: L3 - Hardening
+- Mutation testing
+- Attack simulations
+- Chaos testing
 
-We kindly ask security researchers to:
+### Next Phase: L4 - Resilience
+- Economic security analysis
+- Game theory verification
+- Stress testing
 
-1. Give us reasonable time to fix issues before public disclosure
-2. Make a good faith effort to avoid privacy violations
-3. Not degrade the user experience or disrupt services
-4. Only interact with your own accounts during testing
+## Internal Security Contacts
 
-## Contact
-
-- Security Email: security@pil.network
-- PGP Fingerprint: XXXX XXXX XXXX XXXX XXXX
-- Discord: #security-reports
+- Security Lead: [Internal]
+- Emergency Channel: [Internal Slack/Discord]
 - Response SLA: 24 hours
 
-Thank you for helping keep PIL Protocol secure!
+## Security Documentation
+
+| Document | Description |
+|----------|-------------|
+| [SECURITY_ROADMAP.md](./docs/SECURITY_ROADMAP.md) | Complete security plan |
+| [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md) | Latest findings |
+| [SECURITY_INVARIANTS.md](./docs/SECURITY_INVARIANTS.md) | Formal invariants |
+| [THREAT_MODEL.md](./docs/THREAT_MODEL.md) | Threat analysis |
+
+Thank you for contributing to PIL Protocol security!

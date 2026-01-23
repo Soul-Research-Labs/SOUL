@@ -37,10 +37,61 @@ contract ConfidentialDataAvailability is
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant PUBLISHER_ROLE = keccak256("PUBLISHER_ROLE");
-    bytes32 public constant VALIDATOR_ROLE = keccak256("VALIDATOR_ROLE");
-    bytes32 public constant RECOVERY_ROLE = keccak256("RECOVERY_ROLE");
-    bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
+    /// @dev Pre-computed keccak256("PUBLISHER_ROLE") for gas savings
+    bytes32 public constant PUBLISHER_ROLE =
+        0x0ac90c257048ef1c3e387c26d4a99bde06894efbcbff862dc1885c3a9319308a;
+    /// @dev Pre-computed keccak256("VALIDATOR_ROLE") for gas savings
+    bytes32 public constant VALIDATOR_ROLE =
+        0x21702c8af46127c7fa207f89d0b0a8441bb32959a0ac7df790e9ab1a25c98926;
+    /// @dev Pre-computed keccak256("RECOVERY_ROLE") for gas savings
+    bytes32 public constant RECOVERY_ROLE =
+        0x0acf805600123ef007091da3b3ffb39474074c656c127aa68cb0ffec232a8ff8;
+    /// @dev Pre-computed keccak256("AUDITOR_ROLE") for gas savings
+    bytes32 public constant AUDITOR_ROLE =
+        0x59a1c48e5837ad7a7f3dcedcbe129bf3249ec4fbf651fd4f5e2600ead39fe2f5;
+
+    /*//////////////////////////////////////////////////////////////
+                              CUSTOM ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Thrown when no shards are provided
+    error NoShards();
+    /// @notice Thrown when data size is zero
+    error ZeroDataSize();
+    /// @notice Thrown when blob already exists
+    error BlobExists(bytes32 blobId);
+    /// @notice Thrown when blob is not found
+    error BlobNotFound(bytes32 blobId);
+    /// @notice Thrown when blob has expired
+    error BlobExpired(bytes32 blobId);
+    /// @notice Thrown when insufficient stake is provided
+    error InsufficientStake(uint256 required, uint256 provided);
+    /// @notice Thrown when challenge is already resolved
+    error ChallengeAlreadyResolved(bytes32 challengeId);
+    /// @notice Thrown when challenge deadline has passed
+    error ChallengeDeadlinePassed(bytes32 challengeId);
+    /// @notice Thrown when challenge deadline not passed
+    error ChallengeDeadlineNotPassed(bytes32 challengeId);
+    /// @notice Thrown when stake transfer fails
+    error StakeTransferFailed();
+    /// @notice Thrown when unauthorized access
+    error Unauthorized();
+    /// @notice Thrown when recovery request already complete
+    error RecoveryAlreadyComplete(bytes32 requestId);
+    /// @notice Thrown when recovery request expired
+    error RecoveryRequestExpired(bytes32 requestId);
+    /// @notice Thrown when invalid shard index
+    error InvalidShardIndex(uint8 index, uint8 total);
+    /// @notice Thrown when disclosure time is invalid
+    error InvalidDisclosureTime();
+    /// @notice Thrown when no disclosure scheduled
+    error NoDisclosureScheduled(bytes32 blobId);
+    /// @notice Thrown when disclosure too early
+    error DisclosureTooEarly(bytes32 blobId);
+    /// @notice Thrown when already disclosed
+    error AlreadyDisclosed(bytes32 blobId);
+    /// @notice Thrown when invalid ratio
+    error InvalidRatio(uint256 ratio);
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -375,7 +426,9 @@ contract ConfidentialDataAvailability is
         });
 
         domainBlobs[domainId].push(blobId);
-        totalBlobs++;
+        unchecked {
+            ++totalBlobs;
+        }
         totalDataSize += dataSize;
 
         emit BlobPublished(blobId, domainId, dataCommitment, scheme, expiresAt);
@@ -474,7 +527,9 @@ contract ConfidentialDataAvailability is
         blob.availabilityProofHash = proofId;
 
         blobProofs[blobId].push(proofId);
-        totalProofs++;
+        unchecked {
+            ++totalProofs;
+        }
 
         emit AvailabilityProven(
             blobId,
@@ -564,7 +619,9 @@ contract ConfidentialDataAvailability is
         });
 
         blobChallenges[blobId].push(challengeId);
-        totalChallenges++;
+        unchecked {
+            ++totalChallenges;
+        }
 
         emit ChallengeCreated(challengeId, blobId, msg.sender, msg.value);
     }

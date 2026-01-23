@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title ParallelKernelVerifier
@@ -42,9 +42,15 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant SEQUENCER_ROLE = keccak256("SEQUENCER_ROLE");
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    /// @dev Pre-computed keccak256("VERIFIER_ROLE") for gas savings
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
+    /// @dev Pre-computed keccak256("SEQUENCER_ROLE") for gas savings
+    bytes32 public constant SEQUENCER_ROLE =
+        0xac4f1890dc96c9a02330d1fa696648a38f3b282d2449c2d8e6f10507488c84c8;
+    /// @dev Pre-computed keccak256("OPERATOR_ROLE") for gas savings
+    bytes32 public constant OPERATOR_ROLE =
+        0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929;
 
     /*//////////////////////////////////////////////////////////////
                           SECURITY CONSTANTS
@@ -327,7 +333,10 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
             "PKV: execution exists"
         );
 
-        uint64 seqNum = currentSequenceNumber++;
+        uint64 seqNum;
+        unchecked {
+            seqNum = currentSequenceNumber++;
+        }
 
         executions[executionId] = ExecutionResult({
             executionId: executionId,
@@ -356,7 +365,9 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
         });
 
         sequenceToExecution[seqNum] = executionId;
-        totalExecutions++;
+        unchecked {
+            ++totalExecutions;
+        }
 
         emit ExecutionSubmitted(executionId, bytes32(0), msg.sender, seqNum);
     }
@@ -398,7 +409,9 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
 
         batchExecutions[batchId] = executionIds;
         pendingBatches.push(batchId);
-        totalBatches++;
+        unchecked {
+            ++totalBatches;
+        }
 
         emit BatchCreated(batchId, executionIds.length);
     }
@@ -448,10 +461,13 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
 
         // Phase 2: Detect conflicts (deterministic ordering)
         // Process in sequence number order for determinism
-        for (uint256 i = 0; i < executionIds.length; i++) {
+        for (uint256 i = 0; i < executionIds.length; ) {
             ExecutionResult storage exec = executions[executionIds[i]];
 
             if (exec.status != ExecutionStatus.Verified) {
+                unchecked {
+                    ++i;
+                }
                 continue;
             }
 
@@ -462,7 +478,9 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
                 exec.status = ExecutionStatus.Conflicted;
                 exec.conflictType = conflict.conflictType;
                 exec.conflictWith = conflict.conflictingExecutionId;
-                conflictedCount++;
+                unchecked {
+                    ++conflictedCount;
+                }
 
                 emit ConflictDetected(
                     executionIds[i],
@@ -475,9 +493,14 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
                 _acceptExecution(executionIds[i]);
                 exec.status = ExecutionStatus.Accepted;
                 accepted[i] = true;
-                acceptedCount++;
+                unchecked {
+                    ++acceptedCount;
+                }
 
                 emit ExecutionAccepted(executionIds[i], batchId);
+            }
+            unchecked {
+                ++i;
             }
         }
 
@@ -485,19 +508,24 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
         // In Soul, we discard conflicting executions rather than replay
         // The submitter can resubmit with updated inputs
         uint256 discardedCount = 0;
-        for (uint256 i = 0; i < executionIds.length; i++) {
+        for (uint256 i = 0; i < executionIds.length; ) {
             ExecutionResult storage exec = executions[executionIds[i]];
 
             if (exec.status == ExecutionStatus.Conflicted) {
                 exec.status = ExecutionStatus.Discarded;
-                discardedCount++;
-                totalConflicts++;
+                unchecked {
+                    ++discardedCount;
+                    ++totalConflicts;
+                }
 
                 emit ExecutionDiscarded(
                     executionIds[i],
                     batchId,
                     exec.conflictType
                 );
+            }
+            unchecked {
+                ++i;
             }
         }
 
@@ -704,7 +732,7 @@ contract ParallelKernelVerifier is AccessControl, ReentrancyGuard, Pausable {
     function _verifyProof(
         bytes32 proofHash,
         bytes memory proof
-    ) internal view returns (bool) {
+    ) internal pure returns (bool) {
         // Security: Validate basic requirements first
         if (proofHash == bytes32(0) || proof.length == 0) {
             return false;

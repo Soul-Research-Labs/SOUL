@@ -11,11 +11,15 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract PILMPCComplianceModule is AccessControl, ReentrancyGuard {
     // ============================================
-    // Roles
+    // Roles (Pre-computed for gas savings)
     // ============================================
 
-    bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
-    bytes32 public constant COMPLIANCE_ROLE = keccak256("COMPLIANCE_ROLE");
+    /// @dev Pre-computed keccak256("ORACLE_ROLE")
+    bytes32 public constant ORACLE_ROLE =
+        0x68e79a7bf1e0bc45d0a330c573bc367f9cf464fd326078812f301165fbda4ef1;
+    /// @dev Pre-computed keccak256("COMPLIANCE_ROLE")
+    bytes32 public constant COMPLIANCE_ROLE =
+        0x442a94f1a1fac79af32856af2a64f63648cfa2ef3b98610a5bb7cbec4cee6985;
 
     // ============================================
     // Types
@@ -218,7 +222,9 @@ contract PILMPCComplianceModule is AccessControl, ReentrancyGuard {
     ) external nonReentrant returns (bytes32 requestId) {
         require(encryptedIdentityHash != bytes32(0), "Invalid identity hash");
 
-        requestNonce++;
+        unchecked {
+            ++requestNonce;
+        }
         requestId = keccak256(
             abi.encode(
                 encryptedIdentityHash,
@@ -263,10 +269,13 @@ contract PILMPCComplianceModule is AccessControl, ReentrancyGuard {
 
         // Check oracle is participant
         bool isParticipant = false;
-        for (uint256 i = 0; i < session.oracles.length; i++) {
+        for (uint256 i = 0; i < session.oracles.length; ) {
             if (session.oracles[i] == msg.sender) {
                 isParticipant = true;
                 break;
+            }
+            unchecked {
+                ++i;
             }
         }
         require(isParticipant, "Not a participant");
@@ -278,7 +287,9 @@ contract PILMPCComplianceModule is AccessControl, ReentrancyGuard {
             submittedAt: block.timestamp
         });
 
-        session.submittedShares++;
+        unchecked {
+            ++session.submittedShares;
+        }
 
         emit OracleShareSubmitted(sessionId, msg.sender);
 

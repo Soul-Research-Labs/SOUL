@@ -148,8 +148,10 @@ contract PILMetricsCollector {
     ) external onlyProtocol {
         _checkWindowReset();
 
-        totalDeposits++;
-        deposits24h++;
+        unchecked {
+            ++totalDeposits;
+            ++deposits24h;
+        }
         totalVolume += amount;
         volume24h += amount;
         _updateGasMetrics(gasUsed);
@@ -168,8 +170,10 @@ contract PILMetricsCollector {
     ) external onlyProtocol {
         _checkWindowReset();
 
-        totalWithdrawals++;
-        withdrawals24h++;
+        unchecked {
+            ++totalWithdrawals;
+            ++withdrawals24h;
+        }
         _updateGasMetrics(gasUsed);
 
         emit MetricRecorded("withdrawal", amount, block.timestamp);
@@ -190,8 +194,10 @@ contract PILMetricsCollector {
     ) external onlyProtocol {
         _checkWindowReset();
 
-        totalBridgeTransfers++;
-        bridgeTransfers24h++;
+        unchecked {
+            ++totalBridgeTransfers;
+            ++bridgeTransfers24h;
+        }
         totalVolume += amount;
         volume24h += amount;
 
@@ -202,11 +208,15 @@ contract PILMetricsCollector {
         }
 
         bm.totalVolume += amount;
-        bm.totalTransfers++;
+        unchecked {
+            ++bm.totalTransfers;
+        }
         bm.lastTransfer = block.timestamp;
 
         if (success) {
-            bm.successfulTransfers++;
+            unchecked {
+                ++bm.successfulTransfers;
+            }
             // Update average transfer time
             bm.avgTransferTime =
                 (bm.avgTransferTime *
@@ -214,7 +224,9 @@ contract PILMetricsCollector {
                     transferTime) /
                 bm.successfulTransfers;
         } else {
-            bm.failedTransfers++;
+            unchecked {
+                ++bm.failedTransfers;
+            }
         }
 
         emit BridgeMetricsUpdated(chainId, bm.totalVolume, bm.totalTransfers);
@@ -239,12 +251,16 @@ contract PILMetricsCollector {
             registeredProofSystems.push(proofSystem);
         }
 
-        pm.totalGenerated++;
+        unchecked {
+            ++pm.totalGenerated;
+        }
         pm.lastUsed = block.timestamp;
 
         if (success) {
-            pm.totalVerified++;
-            totalProofsVerified++;
+            unchecked {
+                ++pm.totalVerified;
+                ++totalProofsVerified;
+            }
 
             // Update averages
             pm.avgGenerationTime =
@@ -258,7 +274,9 @@ contract PILMetricsCollector {
                     verificationGas) /
                 pm.totalVerified;
         } else {
-            pm.totalFailed++;
+            unchecked {
+                ++pm.totalFailed;
+            }
         }
 
         emit ProofMetricsUpdated(proofSystem, pm.totalVerified, generationTime);
@@ -283,18 +301,26 @@ contract PILMetricsCollector {
             relayers.push(relayer);
         }
 
-        rm.totalTransactions++;
+        unchecked {
+            ++rm.totalTransactions;
+        }
         rm.totalGasUsed += gasUsed;
         rm.lastActive = block.timestamp;
 
         if (success) {
-            rm.successCount++;
+            unchecked {
+                ++rm.successCount;
+            }
             // Increase reputation (max 150)
             if (rm.reputation < 150) {
-                rm.reputation += 1;
+                unchecked {
+                    ++rm.reputation;
+                }
             }
         } else {
-            rm.failureCount++;
+            unchecked {
+                ++rm.failureCount;
+            }
             // Decrease reputation
             if (rm.reputation > 10) {
                 rm.reputation -= 5;

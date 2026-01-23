@@ -25,9 +25,10 @@ export default defineConfig({
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200
+            runs: 10000  // Optimized for gas efficiency
           },
-          viaIR: true
+          viaIR: true,
+          evmVersion: "paris"
         }
       },
       {
@@ -35,9 +36,21 @@ export default defineConfig({
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200
+            runs: 10000  // Optimized for gas efficiency
           },
-          viaIR: true
+          viaIR: true,
+          evmVersion: "paris"
+        }
+      },
+      {
+        version: "0.8.24",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 10000
+          },
+          viaIR: true,
+          evmVersion: "cancun"  // Required for mcopy opcode
         }
       }
     ]
@@ -55,6 +68,30 @@ export default defineConfig({
       url: process.env.SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
       accounts: [PRIVATE_KEY],
       chainId: 11155111
+    },
+    arbitrumSepolia: {
+      type: "http",
+      url: process.env.ARBITRUM_SEPOLIA_RPC_URL || "https://sepolia-rollup.arbitrum.io/rpc",
+      accounts: [PRIVATE_KEY],
+      chainId: 421614
+    },
+    baseSepolia: {
+      type: "http",
+      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+      accounts: [PRIVATE_KEY],
+      chainId: 84532
+    },
+    optimismSepolia: {
+      type: "http",
+      url: process.env.OPTIMISM_SEPOLIA_RPC_URL || "https://sepolia.optimism.io",
+      accounts: [PRIVATE_KEY],
+      chainId: 11155420
+    },
+    polygonAmoy: {
+      type: "http",
+      url: process.env.POLYGON_AMOY_RPC_URL || "https://rpc-amoy.polygon.technology",
+      accounts: [PRIVATE_KEY],
+      chainId: 80002
     },
     
     // Mainnets

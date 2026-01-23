@@ -664,5 +664,29 @@ contract AvalancheBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
             messageHash != bytes32(0);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                        EMERGENCY WITHDRAWAL
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emergency withdraw ETH locked in contract
+    /// @param recipient Address to receive withdrawn ETH
+    /// @param amount Amount of ETH to withdraw
+    /// @dev Only callable by guardian when paused
+    function emergencyWithdrawETH(
+        address payable recipient,
+        uint256 amount
+    ) external onlyRole(GUARDIAN_ROLE) whenPaused nonReentrant {
+        require(recipient != address(0), "Invalid recipient");
+        require(amount <= address(this).balance, "Insufficient balance");
+
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit EmergencyWithdrawal(recipient, amount);
+    }
+
+    /// @notice Emitted when emergency withdrawal occurs
+    event EmergencyWithdrawal(address indexed recipient, uint256 amount);
+
     receive() external payable {}
 }

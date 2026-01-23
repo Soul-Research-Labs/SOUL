@@ -29,11 +29,15 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
                                ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("ATTESTATION_ADMIN_ROLE")
     bytes32 public constant ATTESTATION_ADMIN_ROLE =
-        keccak256("ATTESTATION_ADMIN_ROLE");
-    bytes32 public constant TCB_OPERATOR_ROLE = keccak256("TCB_OPERATOR_ROLE");
+        0x4110599d2acaa482abb1463b9950b5376506e9043f0ab8ec962aec422695559f;
+    /// @dev keccak256("TCB_OPERATOR_ROLE")
+    bytes32 public constant TCB_OPERATOR_ROLE =
+        0xe3aa0db2cbd8d0d2d2a00fc8ff57e59a6b0a6d2ce3ab9f2f595dc5856281fd41;
+    /// @dev keccak256("ENCLAVE_MANAGER_ROLE")
     bytes32 public constant ENCLAVE_MANAGER_ROLE =
-        keccak256("ENCLAVE_MANAGER_ROLE");
+        0xde9910694b19653a95f44a00a811a151edf09fd081cc521ef173aa9575931455;
 
     /*//////////////////////////////////////////////////////////////
                                TYPES
@@ -266,7 +270,9 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
         });
 
         enclaveByMrenclave[mrenclave] = enclaveId;
-        totalEnclaves++;
+        unchecked {
+            ++totalEnclaves;
+        }
 
         emit EnclaveRegistered(enclaveId, mrenclave, platform);
     }
@@ -352,7 +358,9 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
         });
 
         attestations[resultId] = result;
-        totalAttestations++;
+        unchecked {
+            ++totalAttestations;
+        }
 
         // Update enclave last attestation time
         bytes32 enclaveId = enclaveByMrenclave[quote.mrenclave];
@@ -408,7 +416,9 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
         });
 
         attestations[resultId] = result;
-        totalAttestations++;
+        unchecked {
+            ++totalAttestations;
+        }
 
         emit AttestationVerified(resultId, bytes32(0), result.isValid);
     }
@@ -464,7 +474,9 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
         });
 
         attestations[resultId] = result;
-        totalAttestations++;
+        unchecked {
+            ++totalAttestations;
+        }
 
         emit AttestationVerified(resultId, bytes32(0), result.isValid);
     }
@@ -479,7 +491,7 @@ contract TEEAttestation is AccessControl, ReentrancyGuard, Pausable {
     function verifyAttestation(
         bytes calldata attestationData,
         bytes32 expectedReportData
-    ) external view returns (bool isValid, TEEPlatform platform) {
+    ) external pure returns (bool isValid, TEEPlatform platform) {
         // Detect platform from attestation data header
         if (attestationData.length < 4) {
             return (false, TEEPlatform.SGX_EPID);

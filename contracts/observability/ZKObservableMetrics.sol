@@ -47,10 +47,15 @@ contract ZKObservableMetrics is AccessControl, ReentrancyGuard {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("METRICS_ADMIN_ROLE") for gas savings
     bytes32 public constant METRICS_ADMIN_ROLE =
-        keccak256("METRICS_ADMIN_ROLE");
-    bytes32 public constant AGGREGATOR_ROLE = keccak256("AGGREGATOR_ROLE");
-    bytes32 public constant AUDITOR_ROLE = keccak256("AUDITOR_ROLE");
+        0x3c845b8598d2619ce82cc5b6ef56c05707fc1def1db1518063183e79967007b5;
+    /// @dev Pre-computed keccak256("AGGREGATOR_ROLE") for gas savings
+    bytes32 public constant AGGREGATOR_ROLE =
+        0xb3c3f8258c2780bffb0b444bbeed42fe51cc1a89779df0a97a43a56e08602e19;
+    /// @dev Pre-computed keccak256("AUDITOR_ROLE") for gas savings
+    bytes32 public constant AUDITOR_ROLE =
+        0x59a1c48e5837ad7a7f3dcedcbe129bf3249ec4fbf651fd4f5e2600ead39fe2f5;
 
     /*//////////////////////////////////////////////////////////////
                               CUSTOM ERRORS
@@ -569,13 +574,12 @@ contract ZKObservableMetrics is AccessControl, ReentrancyGuard {
     /**
      * @notice Check if auditor is authorized for a metric
      * @param auditor The auditor address
-     * @param metricId The metric to check
      * @return authorized True if authorized
      * @return detailLevel The detail level allowed
      */
     function checkAuditAuthorization(
         address auditor,
-        bytes32 metricId
+        bytes32 /* metricId */
     ) external view returns (bool authorized, uint8 detailLevel) {
         // In production: iterate through authorizations
         // For MVP: simplified check

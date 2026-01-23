@@ -34,8 +34,8 @@ contract Groth16VerifierBN254 {
     /// @notice Whether the verification key has been initialized
     bool public initialized;
 
-    /// @notice Contract owner for key initialization
-    address public owner;
+    /// @notice Contract owner for key initialization (immutable)
+    address public immutable owner;
 
     /// @notice Custom errors
     error NotInitialized();

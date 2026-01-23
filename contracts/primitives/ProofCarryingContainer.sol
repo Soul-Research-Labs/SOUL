@@ -28,9 +28,12 @@ contract ProofCarryingContainer is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("CONTAINER_ADMIN_ROLE")
     bytes32 public constant CONTAINER_ADMIN_ROLE =
-        keccak256("CONTAINER_ADMIN_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+        0xd0079826f5316a30be81f752efa53f9a84b4f3a6f49fcc124be773400a02ee85;
+    /// @dev keccak256("VERIFIER_ROLE")
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -376,23 +379,28 @@ contract ProofCarryingContainer is AccessControl, ReentrancyGuard, Pausable {
     ) external whenNotPaused nonReentrant onlyRole(VERIFIER_ROLE) {
         Container storage container = containers[containerId];
 
-        if (container.createdAt == 0) {
+        // Cache storage reads for gas efficiency
+        uint64 createdAt = container.createdAt;
+        bool isConsumed = container.isConsumed;
+        bytes32 nullifier = container.nullifier;
+
+        if (createdAt == 0) {
             revert ContainerNotFound(containerId);
         }
 
-        if (container.isConsumed) {
+        if (isConsumed) {
             revert ContainerAlreadyConsumed(containerId);
         }
 
-        if (consumedNullifiers[container.nullifier]) {
-            revert NullifierAlreadyConsumed(container.nullifier);
+        if (consumedNullifiers[nullifier]) {
+            revert NullifierAlreadyConsumed(nullifier);
         }
 
         // Mark as consumed
         container.isConsumed = true;
-        consumedNullifiers[container.nullifier] = true;
+        consumedNullifiers[nullifier] = true;
 
-        emit ContainerConsumed(containerId, container.nullifier, msg.sender);
+        emit ContainerConsumed(containerId, nullifier, msg.sender);
     }
 
     /*//////////////////////////////////////////////////////////////

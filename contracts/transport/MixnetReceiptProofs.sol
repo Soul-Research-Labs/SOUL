@@ -56,10 +56,18 @@ contract MixnetReceiptProofs is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant MIXNET_ADMIN_ROLE = keccak256("MIXNET_ADMIN_ROLE");
-    bytes32 public constant MIX_NODE_ROLE = keccak256("MIX_NODE_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant SENDER_ROLE = keccak256("SENDER_ROLE");
+    /// @dev Pre-computed keccak256("MIXNET_ADMIN_ROLE") for gas savings
+    bytes32 public constant MIXNET_ADMIN_ROLE =
+        0x20d5b8a562840bab34e756737686f7a87b664ce50f40ce74f3162fe6757905ec;
+    /// @dev Pre-computed keccak256("MIX_NODE_ROLE") for gas savings
+    bytes32 public constant MIX_NODE_ROLE =
+        0x71d58687a54ba2970a874866bef02da0b9816342c512774f2f3b24810350711c;
+    /// @dev Pre-computed keccak256("VERIFIER_ROLE") for gas savings
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
+    /// @dev Pre-computed keccak256("SENDER_ROLE") for gas savings
+    bytes32 public constant SENDER_ROLE =
+        0x76d12de99ad2ca162840505be9b657c2e7a650cc3ee0284048f3f9def3c1adf2;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

@@ -56,15 +56,22 @@ contract BatchVerifier {
         result.invalidCount = 0;
         result.allValid = true;
 
-        for (uint256 i = 0; i < proofs.length; i++) {
+        for (uint256 i = 0; i < proofs.length; ) {
             bool valid = _verifySingle(proofs[i], publicInputsArray[i]);
             result.results[i] = valid;
 
             if (valid) {
-                result.validCount++;
+                unchecked {
+                    ++result.validCount;
+                }
             } else {
-                result.invalidCount++;
+                unchecked {
+                    ++result.invalidCount;
+                }
                 result.allValid = false;
+            }
+            unchecked {
+                ++i;
             }
         }
 

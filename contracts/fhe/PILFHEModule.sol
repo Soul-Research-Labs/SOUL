@@ -499,7 +499,7 @@ contract PILFHEModule is Ownable, ReentrancyGuard {
         bytes32 leaf,
         bytes32[] calldata proof,
         uint256[] calldata pathIndices
-    ) external view returns (bool valid) {
+    ) external pure returns (bool valid) {
         require(proof.length == pathIndices.length, "Length mismatch");
 
         // In production, this would verify FHE Merkle proof

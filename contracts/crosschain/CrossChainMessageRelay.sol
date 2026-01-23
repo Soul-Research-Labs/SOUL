@@ -126,8 +126,8 @@ contract CrossChainMessageRelay is AccessControl, ReentrancyGuard, Pausable {
     /// @notice Message expiry duration (default: 7 days)
     uint256 public messageExpiry = 7 days;
 
-    /// @notice Failed message retry delay
-    uint256 public retryDelay = 1 hours;
+    /// @notice Failed message retry delay (constant)
+    uint256 public constant RETRY_DELAY = 1 hours;
 
     /// @notice Total messages sent
     uint256 public totalMessagesSent;
@@ -438,8 +438,8 @@ contract CrossChainMessageRelay is AccessControl, ReentrancyGuard, Pausable {
         if (message.messageId == bytes32(0)) revert MessageNotFound(messageId);
 
         ExecutionResult storage lastResult = executionResults[messageId];
-        if (block.timestamp < lastResult.executedAt + retryDelay) {
-            revert RetryTooSoon(messageId, lastResult.executedAt + retryDelay);
+        if (block.timestamp < lastResult.executedAt + RETRY_DELAY) {
+            revert RetryTooSoon(messageId, lastResult.executedAt + RETRY_DELAY);
         }
 
         // Check expiry

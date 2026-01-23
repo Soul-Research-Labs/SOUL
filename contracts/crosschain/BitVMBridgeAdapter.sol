@@ -678,17 +678,20 @@ contract BitVMBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
             uint256 slashAmount = proverStakes[computation.prover];
             proverStakes[computation.prover] = 0;
 
-            // Pay challenger
-            (bool success, ) = payable(challenge.challenger).call{
-                value: slashAmount + challenge.stake
-            }("");
-            if (!success) revert TransferFailed();
+            // SECURITY FIX: Update state BEFORE external call to prevent reentrancy
+            challenge.status = ChallengeStatus.RESOLVED_FRAUD;
 
             emit ProverSlashed(
                 computation.prover,
                 slashAmount,
                 computation.commitmentId
             );
+
+            // Pay challenger (external call after state updates)
+            (bool success, ) = payable(challenge.challenger).call{
+                value: slashAmount + challenge.stake
+            }("");
+            if (!success) revert TransferFailed();
         } else if (challenge.status == ChallengeStatus.RESPONDED) {
             // Prover responded successfully
             isFraud = false;
@@ -697,13 +700,12 @@ contract BitVMBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
 
             // Return challenger stake to prover as reward
             proverStakes[computation.prover] += challenge.stake;
+
+            // SECURITY FIX: Update state for non-fraud case
+            challenge.status = ChallengeStatus.RESOLVED_VALID;
         } else {
             revert("Challenge not resolvable");
         }
-
-        challenge.status = isFraud
-            ? ChallengeStatus.RESOLVED_FRAUD
-            : ChallengeStatus.RESOLVED_VALID;
 
         emit ChallengeResolved(challengeId, isFraud, winner);
     }

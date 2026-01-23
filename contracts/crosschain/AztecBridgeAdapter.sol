@@ -652,7 +652,7 @@ contract AztecBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
     function _verifyPILProof(
         bytes32 commitment,
         bytes32 nullifier,
-        uint256 amount,
+        uint256 /* amount */,
         bytes calldata proof
     ) internal pure returns (bool) {
         // In production: Integrate with PIL Groth16/PLONK verifier
@@ -669,7 +669,7 @@ contract AztecBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
     function _verifyAztecNoteProof(
         bytes32 noteHash,
         bytes32 owner,
-        uint256 amount,
+        uint256 /* amount */,
         bytes calldata proof
     ) internal pure returns (bool) {
         // In production: Verify against Aztec rollup state
@@ -685,7 +685,7 @@ contract AztecBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
     function _verifyAztecSpendProof(
         bytes32 noteHash,
         bytes32 nullifier,
-        uint256 amount,
+        uint256 /* amount */,
         bytes calldata proof
     ) internal pure returns (bool) {
         // In production: Verify Aztec nullifier against nullifier tree

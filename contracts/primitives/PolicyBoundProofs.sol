@@ -25,8 +25,12 @@ contract PolicyBoundProofs is AccessControl, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
-    bytes32 public constant POLICY_ADMIN_ROLE = keccak256("POLICY_ADMIN_ROLE");
-    bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
+    /// @dev keccak256("POLICY_ADMIN_ROLE")
+    bytes32 public constant POLICY_ADMIN_ROLE =
+        0xace7350211ab645c1937904136ede4855ac3aa1eabb4970e1a51a335d2e19920;
+    /// @dev keccak256("VERIFIER_ROLE")
+    bytes32 public constant VERIFIER_ROLE =
+        0x0ce23c3e399818cfee81a7ab0880f714e53d7672b08df0fa62f2843416e1ea09;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

@@ -82,8 +82,8 @@ contract FRIVerifier is IProofVerifier {
     /// @notice FRI configuration
     FRIConfig public config;
 
-    /// @notice Contract owner
-    address public owner;
+    /// @notice Contract owner (immutable)
+    address public immutable owner;
 
     /// @notice Domain generator powers (cached)
     mapping(uint256 => uint256) public domainGenerators;

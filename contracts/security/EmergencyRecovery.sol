@@ -104,7 +104,7 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
     RecoveryStage public currentStage;
 
     /// @notice Stage change cooldown (prevents rapid oscillation)
-    uint256 public stageCooldown = 1 hours;
+    uint256 public constant STAGE_COOLDOWN = 1 hours;
 
     /// @notice Last stage change timestamp
     uint256 public lastStageChange;
@@ -256,8 +256,8 @@ contract EmergencyRecovery is AccessControl, ReentrancyGuard, Pausable {
         // Check cooldown for de-escalation
         if (newStage < currentStage) {
             uint256 elapsed = block.timestamp - lastStageChange;
-            if (elapsed < stageCooldown) {
-                revert CooldownNotElapsed(stageCooldown - elapsed);
+            if (elapsed < STAGE_COOLDOWN) {
+                revert CooldownNotElapsed(STAGE_COOLDOWN - elapsed);
             }
         }
 

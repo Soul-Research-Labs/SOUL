@@ -1,3 +1,13 @@
+/**
+ * PIL SDK - Privacy Interoperability Layer
+ * 
+ * Optimized exports with tree-shaking support.
+ * Use subpath imports for smaller bundles:
+ * - @pil/sdk/pqc - Post-quantum cryptography
+ * - @pil/sdk/bridges - Cross-chain bridges
+ * - @pil/sdk/react - React hooks
+ */
+
 import { PILSDK } from "./client/PILSDK";
 import { CryptoModule } from "./utils/crypto";
 import ProofTranslator, {
@@ -87,6 +97,28 @@ export * as MPC from "./mpc";
 
 // FHE (Fully Homomorphic Encryption)
 export * as FHE from "./fhe";
+
+// Post-Quantum Cryptography
+export * as PQC from "./pqc";
+
+// Re-export PQC types for convenience
+export {
+  PQCAlgorithm,
+  TransitionPhase,
+  PQCClient,
+  DilithiumClient,
+  KyberClient,
+  generateRandomBytes,
+  encodeHybridSignature,
+  decodeHybridSignature,
+  HYBRID_SIG_MAGIC,
+  type PQCAccountConfig,
+  type HybridSignature,
+  type KeyPair,
+  type EncapsulationResult,
+  type PQCStats,
+  type PQCClientConfig,
+} from "./pqc";
 
 export {
   // Core SDK

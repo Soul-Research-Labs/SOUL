@@ -764,7 +764,7 @@ contract SemanticProofTranslationCertificate is
         bytes32 sourceProofHash,
         bytes32 targetProofHash,
         SemanticDomain domain
-    ) external view returns (bool, bytes32) {
+    ) external pure returns (bool, bytes32) {
         // Compute a lookup key from the input parameters
         bytes32 lookupKey = keccak256(
             abi.encodePacked(sourceProofHash, targetProofHash, domain)

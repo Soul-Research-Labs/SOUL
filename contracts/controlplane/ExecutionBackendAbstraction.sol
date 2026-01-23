@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "../interfaces/IProofVerifier.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
 
 /**
  * @title ExecutionBackendAbstraction
@@ -745,7 +745,7 @@ contract ExecutionBackendAbstraction is AccessControl, ReentrancyGuard {
 
     function _verifyProofOrAttestation(
         address verifierContract,
-        ProofType proofType,
+        ProofType /* proofType */,
         bytes storage proofOrAttestation,
         bytes32 stateOld,
         bytes32 stateNew,

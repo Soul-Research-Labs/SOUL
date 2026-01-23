@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "../interfaces/IProofVerifier.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
 
 /**
  * @title ZKBoundStateLocks (ZK-SLocks)
@@ -75,6 +75,9 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
     error NoOptimisticUnlock(bytes32 lockId);
     error AlreadyDisputed(bytes32 lockId);
     error InvalidConflictProof(bytes32 lockId);
+    error ETHTransferFailed();
+    error VerifierAlreadyRegistered(bytes32 verifierKeyHash);
+    error InvalidVerifierAddress();
 
     /*//////////////////////////////////////////////////////////////
                                DATA TYPES
@@ -506,7 +509,7 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         (bool success, ) = payable(optimistic.unlocker).call{
             value: optimistic.bondAmount
         }("");
-        require(success, "ETH transfer failed");
+        if (!success) revert ETHTransferFailed();
 
         emit OptimisticUnlockFinalized(lockId, optimistic.unlocker);
     }
@@ -560,7 +563,7 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         // SECURITY: transfer() only forwards 2300 gas which fails for smart contract wallets
         uint256 bondToSlash = optimistic.bondAmount;
         (bool success, ) = payable(msg.sender).call{value: bondToSlash}("");
-        require(success, "Bond transfer failed");
+        if (!success) revert ETHTransferFailed();
 
         emit LockDisputed(
             lockId,
@@ -583,8 +586,10 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         bytes32 verifierKeyHash,
         address verifierContract
     ) external onlyRole(VERIFIER_ADMIN_ROLE) {
-        require(verifiers[verifierKeyHash] == address(0), "Already registered");
-        require(verifierContract != address(0), "Invalid address");
+        if (verifiers[verifierKeyHash] != address(0)) {
+            revert VerifierAlreadyRegistered(verifierKeyHash);
+        }
+        if (verifierContract == address(0)) revert InvalidVerifierAddress();
 
         verifiers[verifierKeyHash] = verifierContract;
 
@@ -913,16 +918,22 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         chain = new bytes32[](maxDepth);
         bytes32 current = startCommitment;
 
-        for (uint256 i = 0; i < maxDepth; i++) {
+        for (uint256 i = 0; i < maxDepth; ) {
             chain[i] = current;
             current = commitmentSuccessor[current];
             if (current == bytes32(0)) {
                 // Resize array
                 bytes32[] memory resized = new bytes32[](i + 1);
-                for (uint256 j = 0; j <= i; j++) {
+                for (uint256 j = 0; j <= i; ) {
                     resized[j] = chain[j];
+                    unchecked {
+                        ++j;
+                    }
                 }
                 return resized;
+            }
+            unchecked {
+                ++i;
             }
         }
     }

@@ -25,10 +25,15 @@ contract CrossDomainNullifierAlgebra is AccessControl, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev keccak256("NULLIFIER_REGISTRAR_ROLE")
     bytes32 public constant NULLIFIER_REGISTRAR_ROLE =
-        keccak256("NULLIFIER_REGISTRAR_ROLE");
-    bytes32 public constant DOMAIN_ADMIN_ROLE = keccak256("DOMAIN_ADMIN_ROLE");
-    bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
+        0x5505d4e1c339d2da96b423eae372f08e27c4388c7bee6502a760802a80405236;
+    /// @dev keccak256("DOMAIN_ADMIN_ROLE")
+    bytes32 public constant DOMAIN_ADMIN_ROLE =
+        0x7792e66be7e1c65b630a8198da6bf1636e24cd26934ca652e146dd12060d06fb;
+    /// @dev keccak256("BRIDGE_ROLE")
+    bytes32 public constant BRIDGE_ROLE =
+        0x52ba824bfabc2bcfcdf7f0edbb486ebb05e1836c90e78047efeb949990f72e5f;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

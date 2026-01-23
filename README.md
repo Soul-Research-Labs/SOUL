@@ -82,6 +82,28 @@ Cross-chain middleware for private state transfer and zero-knowledge proof verif
 
 ## Security Features
 
+### Added Security Stack (January 2026)
+
+PIL includes an advanced added security layer with 6 specialized security modules:
+
+| Module | Purpose | Key Features |
+|--------|---------|--------------|
+| **RuntimeSecurityMonitor** | Real-time bytecode analysis | Invariant checking, suspicious opcode detection, security scoring |
+| **FormalBugBounty** | On-chain bug bounty program | 5-tier severity, encrypted submissions, judge voting, auto-payouts |
+| **CryptographicAttestation** | TEE attestation verification | SGX DCAP, TDX, SEV-SNP, ARM CCA, TCB level enforcement |
+| **EmergencyResponseAutomation** | Incident management | Runbooks, auto-remediation, incident lifecycle tracking |
+| **ZKFraudProof** | Zero-knowledge fraud proofs | Fast finality (1 day vs 7), batch management, prover bonding |
+| **ThresholdSignature** | Multi-party signatures | t-of-n ECDSA/BLS/FROST, full DKG protocol |
+
+Plus the **AddedSecurityOrchestrator** that coordinates all modules.
+
+```bash
+# Deploy added security stack
+npx hardhat run scripts/deploy-added-security.ts --network sepolia
+```
+
+See [ULTRA_SECURITY_OPERATOR_RUNBOOK.md](docs/ULTRA_SECURITY_OPERATOR_RUNBOOK.md) for operational guidance.
+
 ### Time-Locked Admin Operations
 
 All sensitive administrative operations go through the `PILTimelock` contract:
@@ -192,6 +214,35 @@ function submitProof(
 
 function registerRelayer() external payable;
 function claimBatch(bytes32 batchId) external;
+```
+
+### L2 Bridge Adapters
+
+Native bridge adapters for major L2 networks with cross-domain messaging and proof relay.
+
+| Adapter | Chain | Features |
+|---------|-------|----------|
+| `ArbitrumBridgeAdapter` | Arbitrum One/Nova | Retryable Tickets, Outbox Proofs, Nitro |
+| `OptimismBridgeAdapter` | Optimism | CrossDomainMessenger, Bedrock, Fault Proofs |
+| `BaseBridgeAdapter` | Base | OP Stack, CCTP for native USDC, Coinbase Attestations |
+| `L2ChainAdapter` | All L2s | Generic adapter with zkSync, Scroll, Linea, Polygon zkEVM |
+
+```solidity
+// Send proof from L1 to L2
+function sendProofToL2(
+    bytes32 proofHash,
+    bytes calldata proof,
+    bytes calldata publicInputs,
+    uint256 gasLimit
+) external payable returns (bytes32 messageId);
+
+// Receive proof on L2 (called by CrossDomainMessenger)
+function receiveProofFromL1(
+    bytes32 proofHash,
+    bytes calldata proof,
+    bytes calldata publicInputs,
+    uint256 sourceChainId
+) external;
 ```
 
 ### PILAtomicSwap
@@ -477,13 +528,130 @@ npm run certora             # Formal verification (requires API key)
 
 See [Security Analysis Report](reports/SECURITY_ANALYSIS_REPORT.md) for detailed findings.
 
+## Post-Quantum Cryptography (PQC)
+
+PIL includes experimental support for post-quantum cryptographic primitives to future-proof the protocol against quantum computing threats.
+
+### Supported Algorithms
+
+| Algorithm | Type | Security Level | Status |
+|-----------|------|----------------|--------|
+| **Dilithium3** (ML-DSA-65) | Digital Signature | 128-bit quantum | ✅ Implemented |
+| **Dilithium5** (ML-DSA-87) | Digital Signature | 192-bit quantum | ✅ Implemented |
+| **SPHINCS+-128s** (SLH-DSA) | Digital Signature | 128-bit quantum | ✅ Implemented |
+| **SPHINCS+-256s** (SLH-DSA) | Digital Signature | 256-bit quantum | ✅ Implemented |
+| **Kyber768** (ML-KEM-768) | Key Encapsulation | 192-bit classical | ✅ Implemented |
+| **Kyber1024** (ML-KEM-1024) | Key Encapsulation | 256-bit classical | ✅ Implemented |
+
+### PQC Contracts
+
+```
+contracts/pqc/
+├── DilithiumVerifier.sol      # NIST ML-DSA signature verification
+├── SPHINCSPlusVerifier.sol    # Hash-based signature verification
+├── KyberKEM.sol               # ML-KEM key encapsulation
+├── PQCRegistry.sol            # Central PQC primitive registry
+├── PQCProtectedLock.sol       # ZK-SLocks with PQC protection
+└── lib/
+    └── HybridSignatureLib.sol # Hybrid ECDSA+PQ signature utilities
+```
+
+### Hybrid Signature Scheme
+
+PIL supports hybrid signatures that combine classical ECDSA with post-quantum algorithms for defense-in-depth:
+
+```solidity
+// Register PQC for your account
+registry.configureAccount(
+    PQCPrimitive.Dilithium3,    // Signature algorithm
+    PQCPrimitive.Kyber768,       // KEM algorithm
+    signatureKeyHash,
+    kemKeyHash,
+    true                         // Enable hybrid mode
+);
+
+// Verify hybrid signature (both must be valid)
+bool valid = registry.verifyHybridSignature(
+    signer,
+    messageHash,
+    ecdsaSignature,
+    dilithiumSignature,
+    dilithiumPublicKey
+);
+```
+
+### Transition Phases
+
+PIL implements a gradual transition strategy:
+
+1. **ClassicalOnly** - Current phase, only ECDSA required
+2. **HybridOptional** - PQC available but optional
+3. **HybridMandatory** - Both classical and PQ required
+4. **PQPreferred** - PQ preferred, classical still accepted
+5. **PQOnly** - Only post-quantum signatures accepted
+
+### SDK Usage
+
+```typescript
+import { PQCRegistryClient, PQCAlgorithm } from '@pil/sdk/pqc';
+
+const pqc = new PQCRegistryClient(registryAddress, signer);
+
+// Configure PQC for your account
+await pqc.configureAccount(
+  PQCAlgorithm.Dilithium3,
+  PQCAlgorithm.Kyber768,
+  dilithiumPublicKey,
+  kyberPublicKey,
+  true // enable hybrid
+);
+
+// Check if account has PQC enabled
+const enabled = await pqc.isPQCEnabled(account);
+
+// Get recommended configuration
+const recommended = await pqc.getRecommendedConfig();
+```
+
+See [POST_QUANTUM_CRYPTOGRAPHY.md](research/POST_QUANTUM_CRYPTOGRAPHY.md) for detailed research documentation.
+
 ## Testing
 
 ```bash
-npm test                    # Run all tests (59 passing)
-npm run test:fuzzing        # Property-based fuzzing tests (14 tests)
+npm test                    # Run all tests
+npm run test:fuzzing        # Property-based fuzzing tests
 npm run test:integration    # Integration tests only
 REPORT_GAS=true npm test    # With gas reporting
+forge test                  # Run Foundry test suite
+```
+
+### Test Suite Status (January 2026)
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| Attack Simulation | 44 | ✅ Passing |
+| Stress Tests | 24 | ✅ Passing |
+| PQC Tests | 33 | ✅ Passing |
+| Integration Tests | 8 | ✅ Passing |
+| Fuzz Tests | 116+ | ✅ Passing |
+| Invariant Tests | 8 | ✅ Passing |
+| Symbolic Tests | 24 | ✅ Working (finds edge cases) |
+| **Total** | **283+** | **All passing** |
+
+### Security Test Categories
+
+```bash
+# Attack simulation tests
+forge test --match-path "test/attacks/*"
+
+# Stress and gas limit tests
+forge test --match-path "test/stress/*"
+
+# Post-quantum cryptography tests
+forge test --match-path "test/pqc/*"
+
+# Property-based fuzzing with Echidna
+npm run echidna:pqc
 ```
 
 ### PIL v2 Primitives Tests
@@ -521,8 +689,10 @@ Test coverage includes:
 - [x] Homomorphic Hiding (HH) - research grade
 - [x] Aggregate Disclosure Algebra (ADA) - research grade
 - [x] Composable Revocation Proofs (CRP) - research grade
-- [x] Comprehensive test suite (419 tests passing)
+- [x] Comprehensive test suite (283+ tests passing)
 - [x] Security tooling (Slither, Echidna, Certora specs)
+- [x] Attack simulation tests (44 tests)
+- [x] Stress tests (24 tests)
 - [x] LLVM vulnerability hardening
 - [x] Local testnet deployment complete
 - [x] Cross-chain bridge adapters (10 chains)
@@ -533,16 +703,26 @@ Test coverage includes:
   - [x] Solana (Wormhole)
   - [x] LayerZero V2 (120+ chains)
   - [x] Chainlink (CCIP, VRF, Automation)
+- [x] **Post-Quantum Cryptography (PQC)**
+  - [x] Dilithium signature verification (ML-DSA)
+  - [x] SPHINCS+ hash-based signatures (SLH-DSA)
+  - [x] Kyber key encapsulation (ML-KEM)
+  - [x] Hybrid signature schemes (ECDSA + PQ)
+  - [x] PQC-protected ZK-SLocks
+  - [x] TypeScript SDK for PQC
 
 ### 🔄 In Progress (Q1 2026)
 
+- [x] Testnet deployment (Sepolia) ✅ Completed Jan 22, 2026
+- [x] L2 bridge adapters (Arbitrum, Optimism, Base) ✅ Completed Jan 22, 2026
+- [ ] L2 testnet deployments (need testnet ETH)
 - [ ] Professional security audit
 - [ ] 100% test coverage
 - [ ] Developer tutorials & documentation
 
 ### ⏳ Upcoming (Q2-Q3 2026)
 
-- [ ] Testnet deployment (Sepolia, multi-chain)
+- [ ] Testnet deployment (multi-chain L2s)
 - [ ] SDK v1.0 release
 - [ ] Relayer network beta
 - [ ] Bug bounty program
@@ -565,6 +745,62 @@ Test coverage includes:
 | Groth16 (BLS12-381) | `Groth16VerifierBLS12381.sol` | ✅ Production |
 | PLONK | `PLONKVerifier.sol` | ✅ Production |
 | FRI/STARK | `FRIVerifier.sol` | ✅ Production |
+
+## L2 Interoperability
+
+PIL provides native integration with major Ethereum L2 networks through dedicated bridge adapters.
+
+| Network | Chain ID | Adapter | Features |
+|---------|----------|---------|----------|
+| Arbitrum One | 42161 | `ArbitrumBridgeAdapter` | Nitro, Retryable Tickets, 7-day challenge |
+| Arbitrum Nova | 42170 | `ArbitrumBridgeAdapter` | AnyTrust, lower fees |
+| Optimism | 10 | `OptimismBridgeAdapter` | OP Stack, Bedrock, Fault Proofs |
+| Base | 8453 | `BaseBridgeAdapter` | OP Stack, CCTP (native USDC), Coinbase attestations |
+| zkSync Era | 324 | `L2ChainAdapter` | ZK Rollup, native account abstraction |
+| Scroll | 534352 | `L2ChainAdapter` | zkEVM, EVM equivalence |
+| Linea | 59144 | `L2ChainAdapter` | zkEVM, Consensys |
+| Polygon zkEVM | 1101 | `L2ChainAdapter` | zkEVM, Polygon ecosystem |
+
+### Cross-Chain Proof Flow
+
+```
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│   L1 Ethereum   │      │  CrossDomain    │      │   L2 Network    │
+│                 │      │  Messenger      │      │                 │
+│  ┌───────────┐  │      │                 │      │  ┌───────────┐  │
+│  │ PIL Core  │──┼──────┼─────────────────┼──────┼─►│ L2 Adapter│  │
+│  │ Contracts │  │      │                 │      │  └───────────┘  │
+│  └───────────┘  │      │                 │      │        │        │
+│       │         │      │                 │      │        ▼        │
+│  ┌────▼──────┐  │      │                 │      │  ┌───────────┐  │
+│  │ L1 Bridge │──┼──────┼────►[Proof]─────┼──────┼─►│ Proof     │  │
+│  │ Adapter   │  │      │                 │      │  │ Relay     │  │
+│  └───────────┘  │      │                 │      │  └───────────┘  │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+```
+
+### Usage Example
+
+```typescript
+import { PILClient, ArbitrumBridgeAdapter } from "@pil/sdk";
+
+// Initialize PIL client
+const client = new PILClient({
+  l1Provider: l1Provider,
+  l2Provider: arbitrumProvider,
+});
+
+// Relay proof from Ethereum to Arbitrum
+const messageId = await client.bridges.arbitrum.sendProofToL2({
+  proofHash: proof.hash,
+  proof: proof.data,
+  publicInputs: proof.inputs,
+  gasLimit: 1_000_000n,
+});
+
+// Wait for relay confirmation
+await client.bridges.arbitrum.waitForRelay(messageId);
+```
 
 ## TEE Support
 
@@ -609,13 +845,47 @@ Deployed to localhost (Chain ID: 31337):
 | PILTimelock | `0x998abeb3E57409262aE5b751f60747921B33613E` |
 | TimelockAdmin | `0x70e0bA845a1A0F2DA3359C97E0285013525FFC49` |
 
-### Sepolia Testnet
+### Sepolia Testnet ✅ DEPLOYED
 
-To deploy to Sepolia:
+**Deployment Date**: January 22, 2026  
+**Deployer**: `0xbc5bb932c7696412622b1fe9a09b7fd9509c6913`  
+**Chain ID**: 11155111
+
+| Contract | Address |
+|----------|---------|
+| MockProofVerifier | [`0x1f830a178020d9d9b968b9f4d13e6e4cdbc9fa57`](https://sepolia.etherscan.io/address/0x1f830a178020d9d9b968b9f4d13e6e4cdbc9fa57) |
+| Groth16VerifierBLS12381 | [`0x09cf3f57c213218446aa49d89236247fbe1d08bd`](https://sepolia.etherscan.io/address/0x09cf3f57c213218446aa49d89236247fbe1d08bd) |
+| PLONKVerifier | [`0x7c73fbd4affdd797c7dae7a1fb23bfd6ced387f2`](https://sepolia.etherscan.io/address/0x7c73fbd4affdd797c7dae7a1fb23bfd6ced387f2) |
+| FRIVerifier | [`0x2e9fceb9a74fba5d8edb6420b350a4edd242bb09`](https://sepolia.etherscan.io/address/0x2e9fceb9a74fba5d8edb6420b350a4edd242bb09) |
+| ConfidentialStateContainerV3 | [`0x5d79991daabf7cd198860a55f3a1f16548687798`](https://sepolia.etherscan.io/address/0x5d79991daabf7cd198860a55f3a1f16548687798) |
+| NullifierRegistryV3 | [`0x3e21d559f19c76a0bcec378b10dae2cc0e4c2191`](https://sepolia.etherscan.io/address/0x3e21d559f19c76a0bcec378b10dae2cc0e4c2191) |
+| CrossChainProofHubV3 | [`0x40eaa5de0c6497c8943c967b42799cb092c26adc`](https://sepolia.etherscan.io/address/0x40eaa5de0c6497c8943c967b42799cb092c26adc) |
+| PILAtomicSwapV2 | [`0xdefb9a66dc14a6d247b282555b69da7745b0ab57`](https://sepolia.etherscan.io/address/0xdefb9a66dc14a6d247b282555b69da7745b0ab57) |
+| PILComplianceV2 | [`0x5d41f63f35babed689a63f7e5c9e2943e1f72067`](https://sepolia.etherscan.io/address/0x5d41f63f35babed689a63f7e5c9e2943e1f72067) |
+| ProofCarryingContainer (PC³) | [`0x52f8a660ff436c450b5190a84bc2c1a86f1032cc`](https://sepolia.etherscan.io/address/0x52f8a660ff436c450b5190a84bc2c1a86f1032cc) |
+| PolicyBoundProofs (PBP) | [`0x75e86ee654eae62a93c247e4ab9facf63bc4f328`](https://sepolia.etherscan.io/address/0x75e86ee654eae62a93c247e4ab9facf63bc4f328) |
+| ExecutionAgnosticStateCommitments (EASC) | [`0x77d22cb55253fea1ccc14ffc86a22e4a5a4592c6`](https://sepolia.etherscan.io/address/0x77d22cb55253fea1ccc14ffc86a22e4a5a4592c6) |
+| CrossDomainNullifierAlgebra (CDNA) | [`0x674d0cbfb5bf33981b1656abf6a47cff46430b0c`](https://sepolia.etherscan.io/address/0x674d0cbfb5bf33981b1656abf6a47cff46430b0c) |
+| TEEAttestation | [`0x43fb20b97b4a363c0f98f534a078f7a0dd1dcdbb`](https://sepolia.etherscan.io/address/0x43fb20b97b4a363c0f98f534a078f7a0dd1dcdbb) |
+| EmergencyRecovery | [`0x1995dbb199c26afd73a817aaafbccbf28f070ffc`](https://sepolia.etherscan.io/address/0x1995dbb199c26afd73a817aaafbccbf28f070ffc) |
+| ZKBoundStateLocks | [`0xf390ae12c9ce8f546ef7c7adaa6a1ab7768a2c78`](https://sepolia.etherscan.io/address/0xf390ae12c9ce8f546ef7c7adaa6a1ab7768a2c78) |
+| ZKSLockIntegration | [`0x668c1a8197d59b5cf4d3802e209d3784c6f69b29`](https://sepolia.etherscan.io/address/0x668c1a8197d59b5cf4d3802e209d3784c6f69b29) |
+
+**Total Contracts**: 17
+
+To redeploy to Sepolia:
 
 1. Copy `.env.example` to `.env` and add your private key
 2. Get Sepolia ETH from [sepoliafaucet.com](https://sepoliafaucet.com)
-3. Run: `npx hardhat run scripts/deploy-pilv2-testnet.js --network sepolia`
+3. Run: `npx hardhat run scripts/deploy-v3.ts --network sepolia`
+
+### L2 Testnets (Pending)
+
+| Network | Status | Chain ID |
+|---------|--------|----------|
+| Arbitrum Sepolia | ⏳ Pending | 421614 |
+| Base Sepolia | ⏳ Pending | 84532 |
+| Optimism Sepolia | ⏳ Pending | 11155420 |
 
 ## Documentation
 

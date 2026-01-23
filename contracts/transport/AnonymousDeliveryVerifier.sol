@@ -54,10 +54,12 @@ contract AnonymousDeliveryVerifier is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("VERIFIER_ADMIN_ROLE") for gas savings
     bytes32 public constant VERIFIER_ADMIN_ROLE =
-        keccak256("VERIFIER_ADMIN_ROLE");
+        0xb194a0b06484f8a501e0bef8877baf2a303f803540f5ddeb9d985c0cd76f3e70;
+    /// @dev Pre-computed keccak256("PROOF_VALIDATOR_ROLE") for gas savings
     bytes32 public constant PROOF_VALIDATOR_ROLE =
-        keccak256("PROOF_VALIDATOR_ROLE");
+        0xafc89d3a9f93959069b55749a3609bdaf5fd6a98429da0b4e63a7cb8636dc9c7;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES

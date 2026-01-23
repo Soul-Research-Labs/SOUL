@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title ExecutionIndirectionLayer
@@ -53,11 +53,15 @@ contract ExecutionIndirectionLayer is AccessControl, ReentrancyGuard, Pausable {
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    /// @dev Pre-computed keccak256("INDIRECTION_ADMIN_ROLE") for gas savings
     bytes32 public constant INDIRECTION_ADMIN_ROLE =
-        keccak256("INDIRECTION_ADMIN_ROLE");
-    bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
+        0xc06ce89f9657b99059a90015a4538c0f25fff53ed687709dbb9386a471fbbe88;
+    /// @dev Pre-computed keccak256("EXECUTOR_ROLE") for gas savings
+    bytes32 public constant EXECUTOR_ROLE =
+        0xd8aa0f3194971a2a116679f7c2090f6939c8d4e01a2a8d7e41d55e5351469e63;
+    /// @dev Pre-computed keccak256("BACKEND_REGISTRAR_ROLE") for gas savings
     bytes32 public constant BACKEND_REGISTRAR_ROLE =
-        keccak256("BACKEND_REGISTRAR_ROLE");
+        0x4f58ec39fe6d0e781e5b32159d8b275c3d7b6cc05cf79709bb1e1fbe221b5d45;
 
     /*//////////////////////////////////////////////////////////////
                               CUSTOM ERRORS

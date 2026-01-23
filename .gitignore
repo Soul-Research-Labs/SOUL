@@ -32,6 +32,7 @@ collect.json
 slither-report.txt
 slither-report.json
 slither.db.json
+crytic-export/
 
 # Certora
 .certora_internal/

@@ -337,7 +337,9 @@ contract PrivateResourceMeter is AccessControl, ReentrancyGuard, Pausable {
         });
 
         executionMeters[executionId] = meterId;
-        totalMeters++;
+        unchecked {
+            ++totalMeters;
+        }
 
         emit MeterStarted(meterId, executionId, mode);
     }
@@ -446,7 +448,9 @@ contract PrivateResourceMeter is AccessControl, ReentrancyGuard, Pausable {
         });
 
         executionReceipts[executionId] = receiptId;
-        totalReceipts++;
+        unchecked {
+            ++totalReceipts;
+        }
 
         emit UniformReceiptCreated(receiptId, executionId);
     }
@@ -491,7 +495,9 @@ contract PrivateResourceMeter is AccessControl, ReentrancyGuard, Pausable {
             finalizedAt: 0
         });
 
-        totalBatches++;
+        unchecked {
+            ++totalBatches;
+        }
 
         emit BatchCreated(batchId, executionIds.length);
     }
@@ -564,7 +570,9 @@ contract PrivateResourceMeter is AccessControl, ReentrancyGuard, Pausable {
         });
 
         userSubscriptions[msg.sender] = subscriptionId;
-        totalSubscriptions++;
+        unchecked {
+            ++totalSubscriptions;
+        }
 
         emit SubscriptionCreated(subscriptionId, msg.sender, tierId);
     }
@@ -690,4 +698,28 @@ contract PrivateResourceMeter is AccessControl, ReentrancyGuard, Pausable {
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
+
+    /*//////////////////////////////////////////////////////////////
+                        EMERGENCY WITHDRAWAL
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Emergency withdraw ETH locked in contract
+    /// @param recipient Address to receive withdrawn ETH
+    /// @param amount Amount of ETH to withdraw
+    /// @dev Only callable by admin when paused
+    function emergencyWithdrawETH(
+        address payable recipient,
+        uint256 amount
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) whenPaused nonReentrant {
+        require(recipient != address(0), "Invalid recipient");
+        require(amount <= address(this).balance, "Insufficient balance");
+
+        (bool success, ) = recipient.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit EmergencyWithdrawal(recipient, amount);
+    }
+
+    /// @notice Emitted when emergency withdrawal occurs
+    event EmergencyWithdrawal(address indexed recipient, uint256 amount);
 }

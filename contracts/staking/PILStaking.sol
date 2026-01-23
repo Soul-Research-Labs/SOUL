@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "../security/SecurityModule.sol";
 
 /**
  * @title PILStaking
@@ -23,13 +24,28 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  * - Minimum stake: 50,000 PIL
  * - Slashing for malicious behavior
  * - Priority in transaction processing
+ *
+ * Security Features (via SecurityModule):
+ * - Rate limiting on stake/unstake operations
+ * - Flash loan attack prevention
+ * - Per-account and global withdrawal limits
+ * - Circuit breaker for abnormal volume
  */
-contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
+contract PILStaking is
+    ReentrancyGuard,
+    AccessControl,
+    Pausable,
+    SecurityModule
+{
     using SafeERC20 for IERC20;
 
-    // Roles
-    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
-    bytes32 public constant REWARDS_MANAGER = keccak256("REWARDS_MANAGER");
+    // Roles - pre-computed keccak256 hashes for gas optimization
+    bytes32 public constant SLASHER_ROLE =
+        0xb437d7f5a40b4fda55b2ddd18c714e2b0d39e90fd8406fb0ed8feec2a16f7d07;
+    bytes32 public constant REWARDS_MANAGER =
+        0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6;
+    bytes32 public constant SECURITY_ADMIN_ROLE =
+        0x7935bd0ae54bc31f548c14dba4d37c5c64b3f8ca900cb468fb8abd54d5894f55;
 
     // Staking token
     IERC20 public immutable pilToken;
@@ -147,7 +163,7 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
     function stake(
         uint256 amount,
         StakingTier tier
-    ) external nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused rateLimited circuitBreaker(amount) {
         TierConfig memory config = tierConfigs[tier];
         require(amount >= config.minStake, "Below minimum stake");
 
@@ -155,6 +171,9 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
 
         // Transfer tokens
         pilToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        // Record deposit for flash loan protection
+        _recordDeposit(msg.sender);
 
         // Create stake
         uint256 endTime = config.lockDuration > 0
@@ -186,7 +205,15 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
      * @notice Unstake PIL tokens
      * @param stakeIndex Index of stake to unstake
      */
-    function unstake(uint256 stakeIndex) external nonReentrant {
+    function unstake(
+        uint256 stakeIndex
+    )
+        external
+        nonReentrant
+        noFlashLoan
+        withdrawalLimited(userStakes[msg.sender][stakeIndex].amount)
+        accountWithdrawalLimited(userStakes[msg.sender][stakeIndex].amount)
+    {
         require(
             stakeIndex < userStakes[msg.sender].length,
             "Invalid stake index"
@@ -324,7 +351,7 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
         Stake[] storage stakes = userStakes[relayer];
         uint256 remaining = slashAmount;
 
-        for (uint256 i = 0; i < stakes.length && remaining > 0; i++) {
+        for (uint256 i = 0; i < stakes.length && remaining > 0; ) {
             if (stakes[i].amount > 0 && stakes[i].isRelayer) {
                 uint256 slash = stakes[i].amount > remaining
                     ? remaining
@@ -333,10 +360,15 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
                 totalStaked -= slash;
                 remaining -= slash;
             }
+            unchecked {
+                ++i;
+            }
         }
 
         // Update relayer stats
-        rel.slashCount++;
+        unchecked {
+            ++rel.slashCount;
+        }
         rel.reputation = rel.reputation > 20 ? rel.reputation - 20 : 0;
         rel.stakedAmount -= slashAmount;
 
@@ -361,10 +393,14 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
     ) external onlyRole(SLASHER_ROLE) {
         Relayer storage rel = relayers[relayer];
         if (rel.isActive) {
-            rel.totalProcessed++;
-            rel.successCount++;
+            unchecked {
+                ++rel.totalProcessed;
+                ++rel.successCount;
+            }
             if (rel.reputation < 100) {
-                rel.reputation += 1;
+                unchecked {
+                    ++rel.reputation;
+                }
             }
         }
     }
@@ -505,5 +541,73 @@ contract PILStaking is ReentrancyGuard, AccessControl, Pausable {
             rewardRate: rewardRate,
             minStake: minStake
         });
+    }
+
+    // ============ Security Admin Functions ============
+
+    /**
+     * @notice Configure rate limiting parameters
+     * @param window Window duration in seconds
+     * @param maxActions Max actions per window
+     */
+    function setRateLimitConfig(
+        uint256 window,
+        uint256 maxActions
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setRateLimitConfig(window, maxActions);
+    }
+
+    /**
+     * @notice Configure circuit breaker parameters
+     * @param threshold Volume threshold
+     * @param cooldown Cooldown period after trip
+     */
+    function setCircuitBreakerConfig(
+        uint256 threshold,
+        uint256 cooldown
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setCircuitBreakerConfig(threshold, cooldown);
+    }
+
+    /**
+     * @notice Configure withdrawal limits
+     * @param singleMax Max single withdrawal
+     * @param dailyMax Max daily global withdrawal
+     * @param accountDailyMax Max daily per-account withdrawal
+     */
+    function setWithdrawalLimits(
+        uint256 singleMax,
+        uint256 dailyMax,
+        uint256 accountDailyMax
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setWithdrawalLimits(singleMax, dailyMax, accountDailyMax);
+    }
+
+    /**
+     * @notice Toggle security features on/off
+     * @param rateLimiting Enable rate limiting
+     * @param circuitBreakers Enable circuit breaker
+     * @param flashLoanGuard Enable flash loan guard
+     * @param withdrawalLimits Enable withdrawal limits
+     */
+    function setSecurityFeatures(
+        bool rateLimiting,
+        bool circuitBreakers,
+        bool flashLoanGuard,
+        bool withdrawalLimits
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setSecurityFeatures(
+            rateLimiting,
+            circuitBreakers,
+            flashLoanGuard,
+            withdrawalLimits
+        );
+    }
+
+    /**
+     * @notice Emergency reset circuit breaker
+     */
+    function resetCircuitBreaker() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _resetCircuitBreaker();
     }
 }

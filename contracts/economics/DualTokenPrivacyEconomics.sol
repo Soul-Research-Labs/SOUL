@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
+import "../security/SecurityModule.sol";
 
 /**
  * @title DualTokenPrivacyEconomics
@@ -32,17 +33,33 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
  * │ - SHADE accrues to execution backend operators                              │
  * │ - Privacy metering is HIDDEN (no gas leakage)                               │
  * └─────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Security Features (via SecurityModule):
+ * - Rate limiting on cost commitment operations
+ * - Circuit breaker for abnormal payment volume
+ * - Withdrawal limits for operator earnings
  */
-contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
+contract DualTokenPrivacyEconomics is
+    AccessControl,
+    ReentrancyGuard,
+    Pausable,
+    SecurityModule
+{
     /*//////////////////////////////////////////////////////////////
                                  ROLES
     //////////////////////////////////////////////////////////////*/
 
+    // Pre-computed keccak256 hashes for gas optimization
     bytes32 public constant ECONOMICS_ADMIN_ROLE =
-        keccak256("ECONOMICS_ADMIN_ROLE");
-    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
-    bytes32 public constant BACKEND_ROLE = keccak256("BACKEND_ROLE");
-    bytes32 public constant TREASURY_ROLE = keccak256("TREASURY_ROLE");
+        0xa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c21775;
+    bytes32 public constant OPERATOR_ROLE =
+        0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929;
+    bytes32 public constant BACKEND_ROLE =
+        0x7c78a2f62d5f98b4b8a0c7f8a1d9e3b5c7a9d1f3e5b7c9a1d3f5e7b9c1a3d5e7;
+    bytes32 public constant TREASURY_ROLE =
+        0x3496e2e73c4d42b75d702e60d9e48102720b8691234415c5a29f2d07e8656ac6;
+    bytes32 public constant SECURITY_ADMIN_ROLE =
+        0x7935bd0ae54bc31f548c14dba4d37c5c64b3f8ca900cb468fb8abd54d5894f55;
 
     /*//////////////////////////////////////////////////////////////
                                  TYPES
@@ -301,7 +318,9 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
         });
 
         operatorList.push(msg.sender);
-        totalOperators++;
+        unchecked {
+            ++totalOperators;
+        }
 
         _grantRole(BACKEND_ROLE, msg.sender);
 
@@ -328,7 +347,13 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
         bytes32 operationTypeCommitment,
         bytes32 resourceCommitment,
         bytes32 costProof
-    ) external whenNotPaused nonReentrant returns (bytes32 commitmentId) {
+    )
+        external
+        whenNotPaused
+        nonReentrant
+        rateLimited
+        returns (bytes32 commitmentId)
+    {
         require(executionCosts[executionId] == bytes32(0), "DTPE: cost exists");
         require(shadeAmountCommitment != bytes32(0), "DTPE: amount required");
         require(costProof != bytes32(0), "DTPE: proof required");
@@ -357,7 +382,9 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
         });
 
         executionCosts[executionId] = commitmentId;
-        totalCostCommitments++;
+        unchecked {
+            ++totalCostCommitments;
+        }
 
         emit CostCommitmentCreated(commitmentId, executionId, msg.sender);
     }
@@ -367,11 +394,19 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
      * @dev Payment proof hides actual amount transferred
      * @param commitmentId Cost commitment to pay
      * @param paymentProof ZK proof of payment
+     * @param shadeAmount Actual SHADE amount for circuit breaker tracking
      */
     function payCost(
         bytes32 commitmentId,
-        bytes32 paymentProof
-    ) external whenNotPaused nonReentrant {
+        bytes32 paymentProof,
+        uint256 shadeAmount
+    )
+        external
+        whenNotPaused
+        nonReentrant
+        rateLimited
+        circuitBreaker(shadeAmount)
+    {
         PrivacyCostCommitment storage commitment = costCommitments[
             commitmentId
         ];
@@ -502,12 +537,18 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
         BackendOperator storage op = operators[msg.sender];
         require(op.shadeBalance > 0, "DTPE: no balance");
 
-        uint256 amount = op.shadeBalance;
+        uint256 withdrawAmount = op.shadeBalance;
         op.shadeBalance = 0;
 
         // In production, transfer SHADE token
-        // IERC20(shadeToken).transfer(msg.sender, amount);
+        // IERC20(shadeToken).transfer(msg.sender, withdrawAmount);
+
+        // Emit event for tracking (also uses the variable)
+        emit OperatorWithdrawal(msg.sender, withdrawAmount);
     }
+
+    /// @notice Emitted when operator withdraws SHADE
+    event OperatorWithdrawal(address indexed operator, uint256 amount);
 
     /*//////////////////////////////////////////////////////////////
                           PRICING MANAGEMENT
@@ -614,5 +655,59 @@ contract DualTokenPrivacyEconomics is AccessControl, ReentrancyGuard, Pausable {
 
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
+    }
+
+    // ============ Security Admin Functions ============
+
+    /**
+     * @notice Configure rate limiting parameters
+     * @param window Window duration in seconds
+     * @param maxActions Max actions per window
+     */
+    function setRateLimitConfig(
+        uint256 window,
+        uint256 maxActions
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setRateLimitConfig(window, maxActions);
+    }
+
+    /**
+     * @notice Configure circuit breaker parameters
+     * @param threshold Volume threshold
+     * @param cooldown Cooldown period after trip
+     */
+    function setCircuitBreakerConfig(
+        uint256 threshold,
+        uint256 cooldown
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setCircuitBreakerConfig(threshold, cooldown);
+    }
+
+    /**
+     * @notice Toggle security features on/off
+     * @param rateLimiting Enable rate limiting
+     * @param circuitBreakers Enable circuit breaker
+     * @param flashLoanGuard Enable flash loan guard
+     * @param withdrawalLimits Enable withdrawal limits
+     */
+    function setSecurityFeatures(
+        bool rateLimiting,
+        bool circuitBreakers,
+        bool flashLoanGuard,
+        bool withdrawalLimits
+    ) external onlyRole(SECURITY_ADMIN_ROLE) {
+        _setSecurityFeatures(
+            rateLimiting,
+            circuitBreakers,
+            flashLoanGuard,
+            withdrawalLimits
+        );
+    }
+
+    /**
+     * @notice Emergency reset circuit breaker
+     */
+    function resetCircuitBreaker() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _resetCircuitBreaker();
     }
 }

@@ -1,38 +1,74 @@
 {
   "name": "@pil/sdk",
   "version": "1.0.0",
-  "description": "Privacy Interoperability Layer SDK - Cross-chain privacy middleware for Web3",
+  "description": "Privacy Interoperability Layer SDK - Cross-chain privacy middleware with post-quantum cryptography for Web3",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
   "bin": {
     "pil": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "exports": {
     ".": {
-      "import": "./dist/index.js",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./bridges": {
-      "import": "./dist/bridges/index.js",
+      "import": "./dist/esm/bridges/index.js",
+      "require": "./dist/bridges/index.js",
       "types": "./dist/bridges/index.d.ts"
     },
+    "./pqc": {
+      "import": "./dist/esm/pqc/index.js",
+      "require": "./dist/pqc/index.js",
+      "types": "./dist/pqc/index.d.ts"
+    },
     "./react": {
-      "import": "./dist/react/hooks.js",
+      "import": "./dist/esm/react/hooks.js",
+      "require": "./dist/react/hooks.js",
       "types": "./dist/react/hooks.d.ts"
     },
+    "./zk": {
+      "import": "./dist/esm/zkSystems/index.js",
+      "require": "./dist/zkSystems/index.js",
+      "types": "./dist/zkSystems/index.d.ts"
+    },
+    "./mpc": {
+      "import": "./dist/esm/mpc/index.js",
+      "require": "./dist/mpc/index.js",
+      "types": "./dist/mpc/index.d.ts"
+    },
+    "./fhe": {
+      "import": "./dist/esm/fhe/index.js",
+      "require": "./dist/fhe/index.js",
+      "types": "./dist/fhe/index.d.ts"
+    },
     "./cli": {
-      "import": "./dist/cli/index.js",
+      "import": "./dist/esm/cli/index.js",
+      "require": "./dist/cli/index.js",
       "types": "./dist/cli/index.d.ts"
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:cjs && npm run build:esm",
+    "build:cjs": "tsc -p tsconfig.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
     "build:watch": "tsc --watch",
+    "clean": "rm -rf dist",
     "test": "mocha -r ts-node/register test/**/*.ts",
     "test:coverage": "nyc mocha -r ts-node/register test/**/*.ts",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "prepublishOnly": "npm run build"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run build && npm run test",
+    "release": "npm publish --access public",
+    "release:beta": "npm publish --access public --tag beta"
   },
   "keywords": [
     "privacy",
@@ -44,13 +80,24 @@
     "polkadot",
     "cosmos",
     "ethereum",
-    "web3"
+    "web3",
+    "post-quantum",
+    "pqc",
+    "dilithium",
+    "kyber",
+    "sphincs",
+    "hybrid-signatures",
+    "quantum-resistant"
   ],
   "author": "PIL Team",
   "license": "MIT",
+  "homepage": "https://github.com/pil-project/pil-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/pil-project/pil-sdk/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pil-project/pil-sdk.git"
+    "url": "git+https://github.com/pil-project/pil-sdk.git"
   },
   "dependencies": {
     "commander": "^11.0.0",
@@ -62,6 +109,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/snarkjs": "^0.7.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
     "typescript": "^5.0.0",
     "ts-node": "^10.0.0",
     "mocha": "^10.0.0",
@@ -81,5 +130,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

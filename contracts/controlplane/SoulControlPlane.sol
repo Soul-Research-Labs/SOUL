@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "../interfaces/IProofVerifier.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
 
 /**
  * @title SoulControlPlane
@@ -863,7 +863,7 @@ contract SoulControlPlane is AccessControl, ReentrancyGuard, Pausable {
 
     function _materialize(
         TypedConfidentialMessage storage message
-    ) internal returns (bool) {
+    ) internal view returns (bool) {
         // Call type handler if registered
         address handler = typeHandlers[message.typeId];
 

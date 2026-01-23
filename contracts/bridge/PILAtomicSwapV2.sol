@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SecurityModule} from "../security/SecurityModule.sol";
 
 /// @title PILAtomicSwapV2
 /// @author PIL Protocol
 /// @notice Atomic cross-chain swaps with HTLC, privacy features, and security hardening
 /// @dev Implements hash time-locked contracts with stealth address support
-contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
+///
+/// Security Features (via SecurityModule):
+/// - Rate limiting on swap creation
+/// - Circuit breaker for abnormal swap volume
+/// - Flash loan guards prevent same-block claim attacks
+/// - Withdrawal limits for fee extraction
+contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable, SecurityModule {
     using SafeERC20 for IERC20;
 
     /// @notice Swap status enum
@@ -151,7 +158,18 @@ contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
         bytes32 hashLock,
         uint256 timeLock,
         bytes32 commitment
-    ) external payable nonReentrant whenNotPaused returns (bytes32 swapId) {
+    )
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+        rateLimited
+        circuitBreaker(msg.value)
+        returns (bytes32 swapId)
+    {
+        // Record deposit for flash loan protection
+        _recordDeposit(msg.sender);
+
         return
             _createSwap(
                 recipient,
@@ -178,8 +196,19 @@ contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
         bytes32 hashLock,
         uint256 timeLock,
         bytes32 commitment
-    ) external nonReentrant whenNotPaused returns (bytes32 swapId) {
+    )
+        external
+        nonReentrant
+        whenNotPaused
+        rateLimited
+        circuitBreaker(amount)
+        returns (bytes32 swapId)
+    {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+
+        // Record deposit for flash loan protection
+        _recordDeposit(msg.sender);
+
         return
             _createSwap(
                 recipient,
@@ -517,6 +546,52 @@ contract PILAtomicSwapV2 is Ownable, ReentrancyGuard, Pausable {
     /// @notice Unpause the contract
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    // ============ Security Admin Functions ============
+
+    /// @notice Configure rate limiting parameters
+    /// @param window Window duration in seconds
+    /// @param maxActions Max actions per window
+    function setRateLimitConfig(
+        uint256 window,
+        uint256 maxActions
+    ) external onlyOwner {
+        _setRateLimitConfig(window, maxActions);
+    }
+
+    /// @notice Configure circuit breaker parameters
+    /// @param threshold Volume threshold
+    /// @param cooldown Cooldown period after trip
+    function setCircuitBreakerConfig(
+        uint256 threshold,
+        uint256 cooldown
+    ) external onlyOwner {
+        _setCircuitBreakerConfig(threshold, cooldown);
+    }
+
+    /// @notice Toggle security features on/off
+    /// @param rateLimiting Enable rate limiting
+    /// @param circuitBreakers Enable circuit breaker
+    /// @param flashLoanGuard Enable flash loan guard
+    /// @param withdrawalLimits Enable withdrawal limits
+    function setSecurityFeatures(
+        bool rateLimiting,
+        bool circuitBreakers,
+        bool flashLoanGuard,
+        bool withdrawalLimits
+    ) external onlyOwner {
+        _setSecurityFeatures(
+            rateLimiting,
+            circuitBreakers,
+            flashLoanGuard,
+            withdrawalLimits
+        );
+    }
+
+    /// @notice Emergency reset circuit breaker
+    function resetCircuitBreaker() external onlyOwner {
+        _resetCircuitBreaker();
     }
 
     /// @notice Receive ETH

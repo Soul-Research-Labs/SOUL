@@ -16,11 +16,15 @@ contract PILThresholdSignature is AccessControl, ReentrancyGuard {
     using MessageHashUtils for bytes32;
 
     // ============================================
-    // Roles
+    // Roles (Pre-computed for gas savings)
     // ============================================
 
-    bytes32 public constant SIGNER_ROLE = keccak256("SIGNER_ROLE");
-    bytes32 public constant COORDINATOR_ROLE = keccak256("COORDINATOR_ROLE");
+    /// @dev Pre-computed keccak256("SIGNER_ROLE")
+    bytes32 public constant SIGNER_ROLE =
+        0xe2f4eaae4a9751e85a3e4a7b9587827a877f29914755229b07a7b2da98285f70;
+    /// @dev Pre-computed keccak256("COORDINATOR_ROLE")
+    bytes32 public constant COORDINATOR_ROLE =
+        0x2e8b98eef02e8df3bd27d1270ded3bea3d14db99c5234c7b14001a7fff957bcc;
 
     // ============================================
     // Types
