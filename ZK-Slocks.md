@@ -11,6 +11,8 @@
 - [Security Reductions](#security-reductions)
 - [Test Vectors](#test-vectors)
 - [Open Problems and Limitations](#open-problems-and-limitations)
+
+
 ## Notation
 
 - $C$ : Commitment
@@ -141,6 +143,84 @@ If $N$ is reused, $\mathcal{A}$ finds a collision in $\mathcal{H}$, contradictin
 - Formal UC security proofs for all protocol variants.
 
 ---
+
+## Detailed Proof Reductions
+
+### Soundness Reduction
+Assume $\mathcal{ZK}$ is sound. If an adversary $\mathcal{A}$ forges $\pi$ without $w$, we construct $\mathcal{B}$ that breaks $\mathcal{ZK}$ soundness:
+
+- $\mathcal{B}$ simulates the ZK-SLock environment.
+- When $\mathcal{A}$ submits $(\pi^*, N^*)$, $\mathcal{B}$ uses $\pi^*$ as a forged proof for $\mathcal{ZK}$, extracting $w^*$ if possible.
+- If $\mathcal{A}$ succeeds, $\mathcal{B}$ breaks $\mathcal{ZK}$ soundness.
+
+### Zero-Knowledge Reduction
+For ZK, we use the standard simulation paradigm:
+
+- Simulator $\mathcal{S}$ generates $\pi$ without $w$ by sampling from the proof distribution.
+- Indistinguishability holds if $\mathcal{ZK}$ is ZK.
+
+### Replay Protection Reduction
+Reduces to collision resistance of $\mathcal{H}$:
+
+- If $N$ is reused, $\mathcal{A}$ finds $N_1 = N_2$ for different $(C_1, w_1) \neq (C_2, w_2)$, contradicting collision resistance.
+
+---
+
+## Complexity Analysis
+
+### Computational Complexity
+- **Lock Creation:** $O(1)$ for commitment, $O(|L|)$ for circuit compilation.
+- **Proof Generation:** $O(|L| \cdot \lambda)$ where $\lambda$ is security parameter (e.g., 128 bits).
+- **Verification:** $O(|L|)$ for ZK verify, $O(1)$ for nullifier check.
+- **Nullifier Management:** $O(\log n)$ for registry lookup (e.g., Merkle tree).
+
+### Communication Complexity
+- Proof size: $O(\lambda)$ for SNARKs/STARKs (e.g., 288 bytes for Groth16).
+- Nullifier: $O(\lambda)$ (e.g., 32 bytes).
+- Total per unlock: $O(\lambda)$.
+
+### Space Complexity
+- On-chain storage: $O(n)$ for nullifier registry, where $n$ is number of locks.
+
+---
+
+## Implementation Pitfalls
+
+- **Constant-Time Operations:** Ensure proof generation uses constant-time arithmetic to prevent timing attacks.
+- **Side-Channel Mitigation:** Use hardware security modules (HSMs) or trusted execution environments (TEEs) for secret handling.
+- **Circuit Optimization:** Minimize circuit size to reduce proof time; avoid unbounded loops.
+- **Randomness Sources:** Use cryptographically secure PRNGs (e.g., ChaCha20) for $r$.
+- **Trusted Setup:** For SNARKs, manage ceremony securely to avoid backdoors.
+- **Audit Trails:** Log all operations for forensic analysis without leaking privacy.
+
+---
+
+## Quantum Resistance
+
+- **Current Primitives:** Pedersen commitments and SHA-256 are quantum-resistant; elliptic curve-based ZK (e.g., Groth16) may be vulnerable to Shor's algorithm.
+- **Post-Quantum Alternatives:** Use lattice-based commitments (e.g., Lyubashevsky's scheme) and hash-based ZK (e.g., STARKs, which are post-quantum).
+- **Migration Path:** Instantiate with Poseidon on BN254 for now, but plan for transition to post-quantum curves (e.g., BLS12-381 with lattice overlays).
+- **Open Issue:** Full post-quantum ZK systems are emerging; monitor NIST PQC standards.
+
+---
+
+## Bibliography
+
+1. Groth, J. (2016). On the Size of Pairing-Based Non-Interactive Arguments. *EUROCRYPT*.
+2. Ben-Sasson, E., et al. (2019). Scalable Zero Knowledge via Cycles of Elliptic Curves. *CRYPTO*.
+3. Pedersen, T. P. (1991). Non-Interactive and Information-Theoretic Secure Verifiable Secret Sharing. *CRYPTO*.
+4. NIST. (2023). Post-Quantum Cryptography Standardization. *NIST IR 8309*.
+5. Canetti, R. (2001). Universally Composable Security: A New Paradigm for Cryptographic Protocols. *FOCS*.
+6. Goldwasser, S., et al. (1989). The Knowledge Complexity of Interactive Proof Systems. *SIAM J. Comput.*.
+
+---
+
+## Formal Verification
+
+- **Tools:** Use Coq or Isabelle/HOL to model the protocol and prove invariants (e.g., atomicity, no double-spend).
+- **Invariants:** Prove that $N$ is unique, $\pi$ is valid iff $L(C, w) = 1$, and state transitions are atomic.
+- **Integration:** Verify Noir circuits with formal tools like Circom's verifier or custom SMT solvers.
+- **Best Practice:** Require formal proofs for all protocol changes before deployment.
 - [Executive Summary](#executive-summary)
 - [Use Case Table](#use-case-table)
 - [Quick Start Guide](#quick-start-guide)
