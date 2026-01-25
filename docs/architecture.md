@@ -1,5 +1,30 @@
 # PIL Protocol Architecture
 
+> **Technical Deep-Dive into PIL's Modular Privacy Infrastructure**
+
+[![Status](https://img.shields.io/badge/Status-Production-green.svg)]()
+[![Version](https://img.shields.io/badge/Version-3.0-blue.svg)]()
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Core Design Principles](#core-design-principles)
+- [System Components](#system-components)
+  - [Confidential State Layer](#1-confidential-state-layer)
+  - [Proof Translation Layer](#2-proof-translation-layer)
+  - [Relayer Network Layer](#3-relayer-network-layer)
+  - [Execution Sandbox Layer](#4-execution-sandbox-layer)
+- [Cross-Chain Message Flow](#cross-chain-message-flow)
+- [Security Model](#security-model)
+- [Gas Optimization](#gas-optimization)
+- [Future Enhancements](#future-enhancements)
+- [V3 Contract Enhancements](#v3-contract-enhancements)
+- [Appendix: Mathematical Background](#appendix-mathematical-background)
+
+---
+
 ## Overview
 
 The Privacy Interoperability Layer (PIL) is designed as a modular middleware protocol that enables private cross-chain state transfers and ZK proof verification. This document describes the technical architecture, component interactions, and security model.

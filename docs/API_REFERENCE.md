@@ -1,5 +1,33 @@
 # PIL Protocol API Reference
 
+> **Complete SDK Documentation for PIL v2**
+
+[![npm](https://img.shields.io/badge/npm-@pil/sdk-blue.svg)](https://www.npmjs.com/package/@pil/sdk)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)]()
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Core Classes](#core-classes)
+  - [PILClient](#pilclient)
+  - [PC3Client](#pc3client)
+  - [PBPClient](#pbpclient)
+  - [EASCClient](#eascclient)
+  - [CDNAClient](#cdnaclient)
+  - [OrchestratorClient](#orchestratorclient)
+- [Utility Functions](#utility-functions)
+- [Events](#events)
+- [Error Handling](#error-handling)
+- [TypeScript Support](#typescript-support)
+- [Best Practices](#best-practices)
+- [Migration Guide](#migration-guide)
+
+---
+
 ## Overview
 
 The Privacy Interoperability Layer (PIL) provides a comprehensive SDK for interacting with privacy-preserving cross-chain operations.

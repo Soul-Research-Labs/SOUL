@@ -1,6 +1,25 @@
 # L2 Interoperability Guide
 
-> PIL native integration with Arbitrum, Optimism, Base, and zkEVM networks.
+> **PIL native integration with Arbitrum, Optimism, Base, and zkEVM networks**
+
+[![L2s](https://img.shields.io/badge/L2s-Arbitrum%20|%20Optimism%20|%20Base%20|%20zkSync-blue.svg)]()
+
+---
+
+## Table of Contents
+
+- [Supported Networks](#supported-networks)
+- [Architecture](#architecture)
+  - [Arbitrum Integration](#arbitrum-integration)
+  - [Optimism Integration](#optimism-integration)
+  - [Base Integration](#base-integration)
+- [Contract Interfaces](#contract-interfaces)
+- [Usage Examples](#usage-examples)
+- [Deployment](#deployment)
+- [Security Considerations](#security-considerations)
+- [Testnet Faucets](#testnet-faucets)
+
+---
 
 **Features:** Proof Relay • State Sync • Nullifier Propagation • USDC via CCTP (Base)
 

@@ -1,20 +1,64 @@
 # Getting Started with PIL
 
-> Quick setup guide. For detailed integration, see [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md).
+> **Privacy Interoperability Layer** - Cross-chain privacy infrastructure for Ethereum L2s
+
+[![npm](https://img.shields.io/badge/npm-@pil/sdk-blue.svg)](https://www.npmjs.com/package/@pil/sdk)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+---
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Core Concepts](#core-concepts)
+- [Complete Example](#complete-example)
+- [Troubleshooting](#troubleshooting)
+- [Next Steps](#next-steps)
+
+---
 
 ## Prerequisites
 
-- Node.js 18+ | npm 9+ | Git
-- RPC endpoint (Sepolia testnet or local Anvil)
+| Requirement | Minimum Version | Check Command |
+|-------------|-----------------|---------------|
+| Node.js | 18.0+ | `node --version` |
+| npm | 9.0+ | `npm --version` |
+| Git | 2.30+ | `git --version` |
+
+**Network Access:**
+- RPC endpoint (Alchemy, Infura, or local Anvil)
+- Testnet ETH for Sepolia (get from [faucets](#testnet-faucets))
+
+**Optional:**
+- TypeScript 5.0+ (for type safety)
+- Hardhat or Foundry (for contract interaction)
 
 ---
 
 ## Installation
 
+### From npm
+
 ```bash
 npm install @pil/sdk
-# or from source
-git clone https://github.com/pil-network/pil-protocol.git && cd pil-protocol && npm install
+```
+
+### From Source
+
+```bash
+git clone https://github.com/soul-research-labs/PIL.git
+cd PIL
+npm install
+npm run build
+```
+
+### Verify Installation
+
+```bash
+npx pil-sdk --version
+# Output: @pil/sdk v2.0.0
 ```
 
 ---
@@ -26,85 +70,216 @@ git clone https://github.com/pil-network/pil-protocol.git && cd pil-protocol && 
 ```typescript
 import { PILSDK } from '@pil/sdk';
 
-// Initialize with your configuration
+// Create SDK instance
 const pil = new PILSDK({
   rpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY',
-  privateKey: process.env.PRIVATE_KEY,
+  privateKey: process.env.PRIVATE_KEY,  // Optional: for signing transactions
   network: 'sepolia'
 });
 
-// Connect to PIL contracts
+// Connect to deployed contracts
 await pil.connect();
+console.log('✅ Connected to PIL Protocol');
 ```
 
-### 2. Create a ZK-Bound State Lock
+### 2. Create Your First ZK-Bound State Lock
 
 ```typescript
-import { ZKBoundStateLocks } from '@pil/sdk';
+// Generate cryptographic primitives
+const secret = pil.crypto.randomBytes(32);
+const nullifier = pil.crypto.poseidon([secret, 0n]);
+const commitment = pil.crypto.poseidon([secret, 1n]);
 
-// Create a state lock with privacy
-const lockResult = await pil.zkSlocks.createLock({
-  oldStateCommitment: '0x...',
-  transitionPredicateHash: '0x...',
-  policyHash: '0x...',
-  domainSeparator: await pil.zkSlocks.generateDomainSeparator('ethereum', 1),
+// Create a state lock
+const lock = await pil.zkSlocks.createLock({
+  oldStateCommitment: commitment,
+  transitionPredicateHash: '0x...', // Your circuit hash
+  policyHash: '0x0', // No policy for this example
+  domainSeparator: await pil.zkSlocks.generateDomainSeparator('sepolia', 1),
   unlockDeadline: Math.floor(Date.now() / 1000) + 3600 // 1 hour
 });
 
-console.log('Lock created:', lockResult.lockId);
+console.log('🔒 Lock created:', lock.lockId);
 ```
 
-### 3. Bridge Assets Privately
+### 3. Unlock with a ZK Proof
 
 ```typescript
-import { BridgeFactory } from '@pil/sdk/bridges';
+import { generateProof } from '@pil/sdk';
 
-// Create a bridge adapter for Cardano
-const bridge = BridgeFactory.create('cardano', {
-  evmRpcUrl: 'https://eth-sepolia...',
-  cardanoRpcUrl: 'https://cardano-preprod...'
+// Generate the ZK proof (off-chain)
+const proof = await generateProof({
+  circuit: 'transfer',
+  inputs: { secret, nullifier, commitment }
 });
 
-// Bridge with privacy
-const transfer = await bridge.bridgeWithPrivacy({
-  amount: '1000000000000000000', // 1 ETH
-  recipient: 'addr_test1...',
-  proofParams: {
-    nullifier: '0x...',
-    commitment: '0x...'
-  }
+// Unlock the state
+await pil.zkSlocks.unlock({
+  lockId: lock.lockId,
+  zkProof: proof.proof,
+  newStateCommitment: newCommitment,
+  nullifier: nullifier,
+  verifierKeyHash: proof.vkHash
 });
+
+console.log('🔓 State unlocked successfully!');
 ```
 
 ---
 
 ## Core Concepts
 
-**ZK-SLocks:** Atomic state transitions with ZK proofs (Create Lock → Prove → Unlock)  
-**Cross-Domain Nullifiers:** Prevent double-spending across all chains  
-**Privacy Pools:** Join anonymity sets for enhanced privacy
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PIL CORE PRIMITIVES                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │  ZK-SLocks   │  │     PC³      │  │     CDNA     │           │
+│  │  State Locks │  │  Containers  │  │  Nullifiers  │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+│         │                 │                 │                    │
+│         └─────────────────┼─────────────────┘                    │
+│                           ▼                                      │
+│               ┌──────────────────────┐                          │
+│               │  Cross-Chain Privacy │                          │
+│               │     Transactions     │                          │
+│               └──────────────────────┘                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## Example: Private Transfer
+| Primitive | Purpose | When to Use |
+|-----------|---------|-------------|
+| **ZK-SLocks** | Lock state, unlock with ZK proof | Cross-chain atomic operations |
+| **PC³** | Self-authenticating containers | Portable proofs between chains |
+| **CDNA** | Cross-domain nullifiers | Prevent double-spending |
+| **PBP** | Policy-bound proofs | Compliant privacy (KYC/AML) |
+| **EASC** | Backend-agnostic commitments | Multi-backend verification |
+
+---
+
+## Complete Example: Private Cross-Chain Transfer
 
 ```typescript
-import { PILSDK, generateProof } from '@pil/sdk';
+import { PILSDK, generateProof, BridgeFactory } from '@pil/sdk';
 
-const pil = new PILSDK({ rpcUrl: process.env.RPC_URL, privateKey: process.env.PRIVATE_KEY });
-await pil.connect();
+async function privateTransfer() {
+  // 1. Initialize SDK
+  const pil = new PILSDK({
+    rpcUrl: process.env.SEPOLIA_RPC_URL,
+    privateKey: process.env.PRIVATE_KEY,
+    network: 'sepolia'
+  });
+  await pil.connect();
 
-// Generate commitment/nullifier
-const secret = pil.crypto.randomBytes(32);
-const nullifier = pil.crypto.poseidon([secret, 0]);
-const commitment = pil.crypto.poseidon([secret, 1]);
+  // 2. Generate cryptographic values
+  const secret = pil.crypto.randomBytes(32);
+  const nullifier = pil.crypto.poseidon([secret, 0n]);
+  const commitment = pil.crypto.poseidon([secret, 100n]); // 100 tokens
 
-// Create lock, prove, unlock
-const lock = await pil.zkSlocks.createLock({ oldStateCommitment: commitment, /* ... */ });
-const proof = await generateProof({ circuit: 'transfer', inputs: { secret, nullifier } });
-await pil.zkSlocks.unlock({ lockId: lock.lockId, zkProof: proof.proof, /* ... */ });
+  // 3. Create lock on source chain
+  const lock = await pil.zkSlocks.createLock({
+    oldStateCommitment: commitment,
+    transitionPredicateHash: await pil.getCircuitHash('transfer'),
+    policyHash: '0x0',
+    domainSeparator: await pil.zkSlocks.generateDomainSeparator('sepolia', 1),
+    unlockDeadline: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+  });
+  console.log('✅ Lock created:', lock.lockId);
+
+  // 4. Generate proof
+  const proof = await generateProof({
+    circuit: 'transfer',
+    inputs: {
+      secret,
+      nullifier,
+      oldCommitment: commitment,
+      newCommitment: pil.crypto.poseidon([secret, 0n]), // Spend all
+      amount: 100n
+    }
+  });
+  console.log('✅ Proof generated');
+
+  // 5. Unlock on destination chain (simulated here)
+  const result = await pil.zkSlocks.unlock({
+    lockId: lock.lockId,
+    zkProof: proof.proof,
+    newStateCommitment: proof.newCommitment,
+    nullifier: nullifier,
+    verifierKeyHash: proof.vkHash
+  });
+  console.log('✅ Transfer complete:', result.txHash);
+
+  return { lockId: lock.lockId, txHash: result.txHash };
+}
+
+// Run it
+privateTransfer().catch(console.error);
 ```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `INSUFFICIENT_FUNDS` | Not enough ETH for gas | Fund your wallet with testnet ETH |
+| `INVALID_PROOF` | Proof doesn't verify | Check circuit inputs match |
+| `NULLIFIER_ALREADY_USED` | Double-spend attempt | Generate fresh nullifier |
+| `LOCK_EXPIRED` | Unlock deadline passed | Increase deadline or act faster |
+| `NETWORK_ERROR` | RPC connection failed | Check RPC URL, try different provider |
+
+### Debug Mode
+
+```typescript
+const pil = new PILSDK({
+  rpcUrl: process.env.RPC_URL,
+  privateKey: process.env.PRIVATE_KEY,
+  network: 'sepolia',
+  debug: true  // Enable verbose logging
+});
+```
+
+### Testnet Faucets
+
+| Network | Faucet URL |
+|---------|------------|
+| Sepolia | [sepoliafaucet.com](https://sepoliafaucet.com) |
+| Arbitrum Sepolia | [Alchemy Faucet](https://www.alchemy.com/faucets/arbitrum-sepolia) |
+| Base Sepolia | [Alchemy Faucet](https://www.alchemy.com/faucets/base-sepolia) |
+
+### Environment Variables Template
+
+```bash
+# .env.example
+SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+PRIVATE_KEY=your_private_key_here  # Never commit this!
+
+# Optional
+ARBITRUM_RPC_URL=https://arb-sepolia.g.alchemy.com/v2/YOUR_KEY
+BASE_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+```
+
+---
 
 ## Next Steps
 
-[Integration Guide](INTEGRATION_GUIDE.md) • [API Reference](API_REFERENCE.md) • [Architecture](architecture.md)
+| Resource | Description |
+|----------|-------------|
+| **[Integration Guide](INTEGRATION_GUIDE.md)** | Deep-dive into SDK usage |
+| **[API Reference](API_REFERENCE.md)** | Complete function documentation |
+| **[Architecture](architecture.md)** | System design and components |
+| **[ZK-SLocks](../ZK-Slocks.md)** | Core primitive deep-dive |
 
-**Support:** [Discord](https://discord.gg/pil-network) | [GitHub Issues](https://github.com/pil-network/pil-protocol/issues)
+### Join the Community
+
+- 💬 [Discord](https://discord.gg/pil-network) - Get help, share ideas
+- 🐙 [GitHub Issues](https://github.com/soul-research-labs/PIL/issues) - Report bugs
+- 🐦 [Twitter](https://twitter.com/pil_protocol) - Latest updates
+
+---
+
+*Built by [Soul Research Labs](https://github.com/soul-research-labs)*

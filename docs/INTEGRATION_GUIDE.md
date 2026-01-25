@@ -1,5 +1,24 @@
 # PIL Integration Guide
 
+> **Step-by-step guide to integrate PIL into your application**
+
+[![SDK](https://img.shields.io/badge/SDK-@pil/sdk-blue.svg)]()
+
+---
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Basic Integration](#basic-integration)
+- [Advanced Usage](#advanced-usage)
+- [Cross-Chain Operations](#cross-chain-operations)
+- [Proof Generation](#proof-generation)
+- [Error Handling](#error-handling)
+- [Testing](#testing)
+- [Production](#production)
+
+---
+
 Integrate the Privacy Interoperability Layer into your application.
 
 ## Installation

@@ -1,5 +1,24 @@
 # PIL Deployment Guide
 
+> **Complete process for deploying PIL to Ethereum mainnet and L2 networks**
+
+[![Networks](https://img.shields.io/badge/Networks-Ethereum%20|%20Arbitrum%20|%20Base-blue.svg)]()
+
+---
+
+## Table of Contents
+
+- [Pre-Deployment Checklist](#pre-deployment-checklist)
+- [Environment Setup](#environment-setup)
+- [Trusted Setup Ceremony](#trusted-setup-ceremony-groth16)
+- [Deployment Steps](#deployment-steps)
+- [Post-Deployment Verification](#post-deployment-verification)
+- [Multi-Chain Deployment](#multi-chain-deployment)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+
+---
+
 > Complete process for deploying PIL to Ethereum mainnet and L2 networks.
 
 For **live deployed addresses**, see [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md).
