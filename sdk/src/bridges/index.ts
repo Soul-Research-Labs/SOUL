@@ -577,12 +577,81 @@ export class BitcoinBridgeAdapterSDK extends BaseBridgeAdapter {
 }
 
 // ============================================
+// Starknet Bridge Adapter
+// ============================================
+
+export class StarknetBridgeAdapterSDK extends BaseBridgeAdapter {
+  private bridgeAddress: string;
+
+  constructor(
+    provider: ethers.Provider,
+    signer: ethers.Signer,
+    bridgeAddress: string
+  ) {
+    super({
+      name: 'Starknet',
+      chainId: 0x534e5f4d41494e, // "SN_MAIN"
+      nativeToken: 'ETH',
+      finality: 1, // L1 verification
+      maxAmount: ethers.parseEther('1000'),
+      minAmount: ethers.parseEther('0.001')
+    }, provider, signer);
+    
+    this.bridgeAddress = bridgeAddress;
+  }
+
+  async bridgeTransfer(params: BridgeTransferParams): Promise<BridgeTransferResult> {
+    this.validateAmount(params.amount);
+    
+    // Starknet specific logic
+    const transferId = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+      ['address', 'uint256', 'uint256', 'uint256'],
+      [this.bridgeAddress, params.recipient, params.amount, Date.now()]
+    ));
+
+    return {
+      transferId,
+      txHash: '0x...',
+      estimatedArrival: Date.now() + (4 * 60 * 60 * 1000), // ~4 hours
+      fees: await this.estimateFees(params.amount, params.targetChainId)
+    };
+  }
+
+  async completeBridge(transferId: string, proof: Uint8Array): Promise<string> {
+    return '0x...';
+  }
+
+  async getStatus(transferId: string): Promise<BridgeStatus> {
+    return {
+      state: 'pending',
+      sourceChainId: 1,
+      targetChainId: this.config.chainId,
+      confirmations: 0,
+      requiredConfirmations: 1
+    };
+  }
+
+  async estimateFees(amount: bigint, targetChainId: number): Promise<BridgeFees> {
+    const protocolFee = amount * 5n / 10000n;
+    const relayerFee = ethers.parseEther('0.001');
+    const gasFee = ethers.parseEther('0.001');
+    
+    return {
+      protocolFee,
+      relayerFee,
+      gasFee,
+      total: protocolFee + relayerFee + gasFee
+    };
+  }
+}
+
+// ============================================
 // Bridge Factory
 // ============================================
 
 export type SupportedChain = 
   | 'cardano' | 'midnight' | 'polkadot' | 'cosmos' | 'near'
-  | 'avalanche' | 'arbitrum' | 'solana' | 'bitcoin';
+  | 'avalanche' | 'arbitrum' | 'solana' | 'bitcoin' | 'starknet';
 
 export class BridgeFactory {
   static createAdapter(
@@ -631,6 +700,11 @@ export class BridgeFactory {
           provider, signer,
           config.relayerRpc,
           config.spvVerifierAddress
+        );
+      case 'starknet':
+        return new StarknetBridgeAdapterSDK(
+          provider, signer,
+          config.bridgeAddress
         );
       default:
         throw new Error(`Unsupported chain: ${chain}`);
