@@ -503,6 +503,14 @@ contract CrossChainProofHubV3 is
                 minRelayerStake
             );
 
+        // FIX: Enforce rate limits for batch
+        _checkRateLimit(len);
+
+        // FIX: Prevent Stake Drain (TOCTOU)
+        unchecked {
+            relayerPendingProofs[msg.sender] += len;
+        }
+
         batchId = keccak256(
             abi.encodePacked(
                 merkleRoot,
@@ -663,8 +671,14 @@ contract CrossChainProofHubV3 is
 
             // Slash relayer and reward challenger
             uint256 slashAmount = submission.stake;
+            uint256 actualSlashed = 0;
+            
             if (relayerStakes[submission.relayer] >= slashAmount) {
                 relayerStakes[submission.relayer] -= slashAmount;
+                actualSlashed = slashAmount;
+            } else {
+                actualSlashed = relayerStakes[submission.relayer];
+                relayerStakes[submission.relayer] = 0;
             }
             relayerSlashCount[submission.relayer]++;
 
@@ -677,7 +691,8 @@ contract CrossChainProofHubV3 is
 
             // Cache challenger address before external call (CEI pattern)
             address challengerAddr = challenge.challenger;
-            uint256 reward = challenge.stake + slashAmount;
+            // FIX: Only reward what was actually slashed to prevent inflation
+            uint256 reward = challenge.stake + actualSlashed;
 
             // Credit rewards to claimable balance (pull pattern - safer than push)
             relayerStakes[challengerAddr] += reward;
@@ -734,6 +749,21 @@ contract CrossChainProofHubV3 is
 
     error ProofRateLimitExceeded(string reason);
 
+    function _checkRateLimit(uint256 count) internal {
+        if (block.timestamp >= lastRateLimitReset + 1 hours) {
+            hourlyProofCount = 0;
+            hourlyValueRelayed = 0;
+            lastRateLimitReset = block.timestamp;
+        }
+
+        if (hourlyProofCount + count > maxProofsPerHour) {
+            revert ProofRateLimitExceeded("Max proofs per hour exceeded");
+        }
+        unchecked {
+            hourlyProofCount += count;
+        }
+    }
+
     function _submitProof(
         bytes calldata proof,
         bytes calldata publicInputs,
@@ -742,20 +772,8 @@ contract CrossChainProofHubV3 is
         uint64 destChainId,
         bool instant
     ) internal returns (bytes32 proofId) {
-        // CIRCUIT BREAKER: Reset hourly counters if an hour has passed
-        if (block.timestamp >= lastRateLimitReset + 1 hours) {
-            hourlyProofCount = 0;
-            hourlyValueRelayed = 0;
-            lastRateLimitReset = block.timestamp;
-        }
-
-        // CIRCUIT BREAKER: Check rate limits (prevents Ronin/Nomad-style mass drainage)
-        if (hourlyProofCount >= maxProofsPerHour) {
-            revert ProofRateLimitExceeded("Max proofs per hour exceeded");
-        }
-        unchecked {
-            ++hourlyProofCount;
-        }
+        // CIRCUIT BREAKER: Check rate limits
+        _checkRateLimit(1);
 
         // Validate fee
         uint256 requiredFee = instant

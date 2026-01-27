@@ -40,6 +40,8 @@ interface IZKBoundStateLocks {
         bytes32 zkProof,
         uint64 duration
     ) external returns (bytes32 lockId);
+
+    function recoverLock(bytes32 lockId, address recipient) external;
 }
 
 contract PQCProtectedLock is AccessControl, Pausable, ReentrancyGuard {
@@ -411,7 +413,8 @@ contract PQCProtectedLock is AccessControl, Pausable, ReentrancyGuard {
 
         delete pendingRecoveries[lockId];
 
-        // Execute recovery logic...
+        // Execute recovery logic on ZK-SLocks
+        zkSlocks.recoverLock(lockId, recipient);
 
         emit EmergencyRecoveryExecuted(lockId, recipient);
     }

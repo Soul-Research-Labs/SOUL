@@ -285,14 +285,13 @@ contract ConfidentialStateContainerV3 is
     /// @param commitment The Pedersen commitment
     /// @param nullifier The nullifier for double-spend prevention
     /// @param proof The ZK proof bytes
-    /// @param publicInputs The public inputs for verification
     /// @param metadata Optional metadata hash
     function registerState(
         bytes calldata encryptedState,
         bytes32 commitment,
         bytes32 nullifier,
         bytes calldata proof,
-        bytes calldata publicInputs,
+        // bytes calldata publicInputs, // REMOVED
         bytes32 metadata
     ) external nonReentrant whenNotPaused {
         _validateAndRegisterState(
@@ -300,7 +299,6 @@ contract ConfidentialStateContainerV3 is
             commitment,
             nullifier,
             proof,
-            publicInputs,
             metadata,
             msg.sender
         );
@@ -358,7 +356,6 @@ contract ConfidentialStateContainerV3 is
             commitment,
             nullifier,
             proof,
-            publicInputs,
             metadata,
             owner
         );
@@ -381,7 +378,6 @@ contract ConfidentialStateContainerV3 is
                 stateInputs[i].commitment,
                 stateInputs[i].nullifier,
                 stateInputs[i].proof,
-                stateInputs[i].publicInputs,
                 stateInputs[i].metadata,
                 msg.sender
             );
@@ -400,15 +396,14 @@ contract ConfidentialStateContainerV3 is
     /// @param newCommitment The new commitment
     /// @param newNullifier The new nullifier
     /// @param proof The ZK proof
-    /// @param publicInputs The public inputs
     /// @param newOwner The new owner address
     function transferState(
         bytes32 oldCommitment,
         bytes calldata newEncryptedState,
         bytes32 newCommitment,
         bytes32 newNullifier,
+        bytes32 spendingNullifier,
         bytes calldata proof,
-        bytes calldata publicInputs,
         address newOwner
     ) external nonReentrant whenNotPaused {
         _transferState(
@@ -416,8 +411,8 @@ contract ConfidentialStateContainerV3 is
             newEncryptedState,
             newCommitment,
             newNullifier,
+            spendingNullifier,
             proof,
-            publicInputs,
             newOwner,
             msg.sender
         );
@@ -432,7 +427,6 @@ contract ConfidentialStateContainerV3 is
         bytes32 commitment,
         bytes32 nullifier,
         bytes calldata proof,
-        bytes calldata publicInputs,
         bytes32 metadata,
         address owner
     ) internal {
@@ -450,6 +444,16 @@ contract ConfidentialStateContainerV3 is
 
         // Check nullifier not used
         if (_nullifiers[nullifier]) revert NullifierAlreadyUsed(nullifier);
+
+        // FIX: Construct public inputs to bind proof to Chain ID and parameters
+        // This prevents cross-chain replay and ensures inputs match
+        bytes memory publicInputs = abi.encode(
+            commitment,
+            nullifier,
+            metadata,
+            uint256(uint160(owner)),
+            block.chainid
+        );
 
         // Verify proof (external call, can't optimize further)
         if (!verifier.verifyProof(proof, publicInputs)) revert InvalidProof();
@@ -489,8 +493,8 @@ contract ConfidentialStateContainerV3 is
         bytes calldata newEncryptedState,
         bytes32 newCommitment,
         bytes32 newNullifier,
+        bytes32 spendingNullifier,
         bytes calldata proof,
-        bytes calldata publicInputs,
         address newOwner,
         address caller
     ) internal {
@@ -512,6 +516,22 @@ contract ConfidentialStateContainerV3 is
             revert StateNotActive(oldCommitment, oldState.status);
         if (_nullifiers[newNullifier])
             revert NullifierAlreadyUsed(newNullifier);
+            
+        // FIX: Check and consume spending nullifier (prevents double spend even if status reset)
+        if (_nullifiers[spendingNullifier])
+            revert NullifierAlreadyUsed(spendingNullifier);
+        _nullifiers[spendingNullifier] = true;
+        _nullifierToCommitment[spendingNullifier] = oldCommitment;
+
+        // FIX: Construct public inputs for transfer
+        bytes memory publicInputs = abi.encode(
+            oldCommitment,
+            newCommitment,
+            newNullifier,
+            spendingNullifier,
+            uint256(uint160(newOwner)),
+            block.chainid
+        );
 
         // Verify proof
         if (!verifier.verifyProof(proof, publicInputs)) revert InvalidProof();
@@ -755,6 +775,6 @@ struct BatchStateInput {
     bytes32 commitment;
     bytes32 nullifier;
     bytes proof;
-    bytes publicInputs;
+    // bytes publicInputs; // Removed: constructed internally
     bytes32 metadata;
 }

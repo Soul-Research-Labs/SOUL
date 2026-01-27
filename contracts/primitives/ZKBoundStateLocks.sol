@@ -54,7 +54,12 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         0x8601f95000f9db10f888b55a4dcf204d495f7b7e45e94a5425cd4562bae08468;
     bytes32 public constant DISPUTE_RESOLVER_ROLE =
         0x7b8bb8356a3f32f5c111ff23f050d97f08988e0883529ea7bff3b918887a6e0e;
-
+    bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR_ROLE");
+    bytes32 public constant RECOVERY_ROLE = keccak256("RECOVERY_ROLE");
+    
+    // =============================================================================
+    // STRUCTS
+    // =============================================================================
     /*//////////////////////////////////////////////////////////////
                               CUSTOM ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -79,6 +84,7 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
     error VerifierAlreadyRegistered(bytes32 verifierKeyHash);
     error InvalidVerifierAddress();
     error DomainAlreadyExists(bytes32 domainSeparator);
+    error InvalidLock(bytes32 lockId);
 
     /*//////////////////////////////////////////////////////////////
                                DATA TYPES
@@ -310,6 +316,8 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         _grantRole(VERIFIER_ADMIN_ROLE, msg.sender);
         _grantRole(DOMAIN_ADMIN_ROLE, msg.sender);
         _grantRole(DISPUTE_RESOLVER_ROLE, msg.sender);
+        _grantRole(OPERATOR_ROLE, msg.sender);
+        _grantRole(RECOVERY_ROLE, msg.sender);
 
         // Immutable verifier saves ~2100 gas per call
         proofVerifier = IProofVerifier(_proofVerifier);
@@ -417,7 +425,9 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         }
 
         // Verify ZK proof
-        _verifyProof(lock, unlockProof);
+        if (!_verifyProof(lock, unlockProof)) {
+            revert InvalidProof(unlockProof.lockId);
+        }
 
         // Execute unlock
         _executeUnlock(
@@ -516,13 +526,16 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Challenge an optimistic unlock with conflicting proof
+     * @notice Challenge an optimistic unlock
+     * @dev Supports two modes:
+     *      1. Fraud Proof: Proving the original proof is invalid
+     *      2. Conflict Proof: Proving a valid conflicting transition
      * @param lockId Lock to challenge
-     * @param conflictProof Conflicting unlock proof
+     * @param evidence The proof data (original or conflicting)
      */
     function challengeOptimisticUnlock(
         bytes32 lockId,
-        UnlockProof calldata conflictProof
+        UnlockProof calldata evidence
     ) external nonReentrant {
         OptimisticUnlock storage optimistic = optimisticUnlocks[lockId];
 
@@ -538,40 +551,65 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
             revert ChallengeWindowClosed(lockId);
         }
 
-        // Mark as disputed
-        optimistic.disputed = true;
-        // Update statistics (packed, saves gas)
-        unchecked {
-            _packedStats += uint256(1) << _STAT_SHIFT_DISPUTES; // Increment totalDisputes
-        }
-
-        // Verify conflict proof
         ZKSLock storage lock = locks[lockId];
-
-        if (conflictProof.lockId != lockId) {
+        if (evidence.lockId != lockId) {
             revert InvalidConflictProof(lockId);
         }
 
-        // Conflict must show different new state commitment
-        if (conflictProof.newStateCommitment == optimistic.newStateCommitment) {
-            revert InvalidConflictProof(lockId);
+        bool challengeSuccessful = false;
+        bytes32 evidenceHash = keccak256(abi.encode(evidence));
+
+        // CASE 1: Fraud Proof (Challenge the validity of the optimistic proof)
+        if (evidenceHash == optimistic.proofHash) {
+             // If the proof verifies successfully, the challenge FAILS (it's a valid proof)
+             // If the proof fails verification, the challenge SUCCEEDS (it was a fraud)
+             if (!_verifyProof(lock, evidence)) {
+                 challengeSuccessful = true;
+             } else {
+                 // The proof is valid, so the challenge is invalid. Slash the challenger.
+                 // We revert here to treat it as a failed tx? 
+                 // Or we slash challenger? 
+                 // For now, reverting matches the "Conflict Proof" behavior of InvalidConflictProof
+                 revert InvalidConflictProof(lockId);
+             }
+        } 
+        // CASE 2: Conflict Proof (Provide a different valid transition)
+        else {
+             // Conflict must show different new state commitment
+            if (evidence.newStateCommitment == optimistic.newStateCommitment) {
+                revert InvalidConflictProof(lockId);
+            }
+            
+            // Conflict proof must be valid
+            if (_verifyProof(lock, evidence)) {
+                 challengeSuccessful = true;
+            } else {
+                 revert InvalidConflictProof(lockId);
+            }
         }
 
-        // Verify the conflict proof is valid
-        _verifyProof(lock, conflictProof);
+        // Apply outcome
+        if (challengeSuccessful) {
+            // Mark as disputed
+            optimistic.disputed = true;
+            
+            // Update statistics
+            unchecked {
+                _packedStats += uint256(1) << _STAT_SHIFT_DISPUTES;
+            }
 
-        // Slash bond to challenger using call() instead of transfer()
-        // SECURITY: transfer() only forwards 2300 gas which fails for smart contract wallets
-        uint256 bondToSlash = optimistic.bondAmount;
-        (bool success, ) = payable(msg.sender).call{value: bondToSlash}("");
-        if (!success) revert ETHTransferFailed();
+            // Slash bond to challenger
+            uint256 bondToSlash = optimistic.bondAmount;
+            (bool success, ) = payable(msg.sender).call{value: bondToSlash}("");
+            if (!success) revert ETHTransferFailed();
 
-        emit LockDisputed(
-            lockId,
-            msg.sender,
-            keccak256(abi.encode(conflictProof)),
-            bondToSlash
-        );
+            emit LockDisputed(
+                lockId,
+                msg.sender,
+                evidenceHash,
+                bondToSlash
+            );
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -629,8 +667,27 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         emit DomainRegistered(domainSeparator, chainId, appId, epoch, name);
     }
 
+    /**
+     * @notice Force unlock a lock (Emergency Recovery)
+     * @dev Only callable by RECOVERY_ROLE (e.g., PQCProtectedLock)
+     */
+    function recoverLock(bytes32 lockId, address recipient) external onlyRole(RECOVERY_ROLE) {
+        ZKSLock storage lock = locks[lockId];
+        if (lock.lockId == bytes32(0)) revert InvalidLock(lockId);
+        
+        // Force unlock logic - remove lock
+        // Mark as unlocked
+        lock.isUnlocked = true;
+        // Remove from active locks
+        _removeActiveLock(lockId);
+        // Clear optimistic unlock if any
+        delete optimisticUnlocks[lockId];
+        
+        emit LockUnlocked(lockId, bytes32(0), bytes32(0), lock.domainSeparator, msg.sender);
+    }
+
     /*//////////////////////////////////////////////////////////////
-                           INTERNAL FUNCTIONS
+                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function _validateLockForUnlock(ZKSLock storage lock) internal view {
@@ -650,7 +707,7 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
     function _verifyProof(
         ZKSLock storage lock,
         UnlockProof calldata unlockProof
-    ) internal view {
+    ) internal view returns (bool) {
         // If we have a registered verifier for this key, use it
         address verifier = verifiers[unlockProof.verifierKeyHash];
 
@@ -673,17 +730,11 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
                 )
             );
 
-            if (!success) {
-                revert InvalidProof(unlockProof.lockId);
-            }
+            if (!success) return false;
 
-            bool proofValid = abi.decode(returnData, (bool));
-            if (!proofValid) {
-                revert InvalidProof(unlockProof.lockId);
-            }
+            return abi.decode(returnData, (bool));
         } else if (address(proofVerifier) != address(0)) {
             // Use the general proof verifier
-            // Convert public inputs to uint256[] for IProofVerifier interface
             uint256[] memory inputs = new uint256[](6);
             inputs[0] = uint256(lock.oldStateCommitment);
             inputs[1] = uint256(unlockProof.newStateCommitment);
@@ -692,13 +743,9 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
             inputs[4] = uint256(lock.domainSeparator);
             inputs[5] = uint256(unlockProof.nullifier);
 
-            bool valid = proofVerifier.verify(unlockProof.zkProof, inputs);
-
-            if (!valid) {
-                revert InvalidProof(unlockProof.lockId);
-            }
+            return proofVerifier.verify(unlockProof.zkProof, inputs);
         } else {
-            revert VerifierNotRegistered(unlockProof.verifierKeyHash);
+            return false;
         }
     }
 
@@ -885,8 +932,30 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
     /**
      * @notice Returns all active lock IDs
      */
-    function getActiveLockIds() external view returns (bytes32[] memory) {
-        return _activeLockIds;
+    /**
+     * @notice Get active lock IDs with pagination to prevent DoS
+     * @param offset Start index
+     * @param limit Maximum number of items to return
+     */
+    function getActiveLockIds(
+        uint256 offset,
+        uint256 limit
+    ) external view returns (bytes32[] memory) {
+        uint256 total = _activeLockIds.length;
+        if (offset >= total) {
+            return new bytes32[](0);
+        }
+
+        uint256 count = limit;
+        if (offset + count > total) {
+            count = total - offset;
+        }
+
+        bytes32[] memory result = new bytes32[](count);
+        for (uint256 i = 0; i < count; i++) {
+            result[i] = _activeLockIds[offset + i];
+        }
+        return result;
     }
 
     /**

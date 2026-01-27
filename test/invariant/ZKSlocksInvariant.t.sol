@@ -56,7 +56,7 @@ contract ZKSlocksInvariantTest is Test {
      */
     function invariant_activeLockCountConsistent() public view {
         uint256 activeLockCount = zkSlocks.getActiveLockCount();
-        bytes32[] memory activeLockIds = zkSlocks.getActiveLockIds();
+        bytes32[] memory activeLockIds = zkSlocks.getActiveLockIds(0, 1000);
         assertEq(
             activeLockCount,
             activeLockIds.length,

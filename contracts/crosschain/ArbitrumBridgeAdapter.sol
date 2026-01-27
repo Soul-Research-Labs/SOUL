@@ -447,6 +447,18 @@ contract ArbitrumBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
         totalValueDeposited += amount;
         totalFeesCollected += fee;
 
+        // FIX: Call Arbitrum Inbox
+        IInbox(config.inbox).createRetryableTicket{value: msg.value}(
+            l2Recipient,
+            amount,
+            submissionCost,
+            msg.sender,
+            msg.sender,
+            l2GasLimit,
+            l2GasPrice,
+            abi.encode(l1Token, amount) // Data payload
+        );
+
         emit DepositInitiated(
             depositId,
             msg.sender,
@@ -543,10 +555,16 @@ contract ArbitrumBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
         if (processedOutputs[withdrawal.outputId])
             revert OutputAlreadyProcessed();
 
-        // Verify outbox proof (simplified)
-        if (!_verifyOutboxProof(withdrawal.outputId, proof, index)) {
-            revert InvalidProof();
-        }
+        // Verify outbox proof (using Arbitrum Outbox)
+        // FIX: Verify against trusted Outbox
+        IOutbox outbox = IOutbox(rollupConfigs[ARB_ONE_CHAIN_ID].outbox);
+        
+        // This function would normally be called by the Outbox during execution
+        // But if we want to manually verify:
+        bytes32 root = outbox.l2ToL1Sender(); // This only works during execution
+        
+        // Proper pattern: Check if msg.sender is Outbox
+        if (msg.sender != address(outbox)) revert InvalidProof();
 
         processedOutputs[withdrawal.outputId] = true;
         withdrawal.status = TransferStatus.FINALIZED;
@@ -737,8 +755,29 @@ contract ArbitrumBridgeAdapter is AccessControl, ReentrancyGuard, Pausable {
             index = index / 2;
         }
 
-        return computedHash != bytes32(0);
+        // FIX: Removed broken placeholder logic
+        // Real verification happens on the Outbox contract
+        return false;
     }
 
     receive() external payable {}
+}
+
+interface IInbox {
+    function createRetryableTicket(
+        address to,
+        uint256 l2CallValue,
+        uint256 maxSubmissionCost,
+        address excessFeeRefundAddress,
+        address callValueRefundAddress,
+        uint256 gasLimit,
+        uint256 maxFeePerGas,
+        bytes calldata data
+    ) external payable returns (uint256);
+}
+
+interface IOutbox {
+    function l2ToL1Sender() external view returns (bytes32);
+    function l2ToL1Block() external view returns (uint256);
+    function l2ToL1Timestamp() external view returns (uint256);
 }

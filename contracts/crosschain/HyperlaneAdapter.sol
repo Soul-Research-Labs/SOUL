@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title HyperlaneAdapter
@@ -227,9 +228,12 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
                 destinationDomain,
                 recipient,
                 nonce,
-                message
+                message // FIX: Using original message for ID generation
             )
         );
+
+        // FIX: Encode nonce into payload to ensure uniqueness on destination
+        bytes memory payload = abi.encodePacked(nonce, message);
 
         // Store message metadata
         messages[messageId] = MessageMetadata({
@@ -245,7 +249,7 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
         });
 
         // Dispatch via mailbox
-        _dispatchToMailbox(destinationDomain, recipient, message);
+        _dispatchToMailbox(destinationDomain, recipient, payload);
 
         emit MessageDispatched(
             messageId,
@@ -295,8 +299,18 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
         // Verify trusted sender
         if (trustedSenders[origin] != sender) revert UntrustedSender();
 
-        // Generate message ID
-        uint256 nonce = ++inboundNonce[origin];
+        // FIX: Extract nonce and body from message payload
+        if (message.length < 32) revert MessageNotVerified();
+        
+        uint256 nonce;
+        // Extract nonce (first 32 bytes)
+        assembly {
+            nonce := calldataload(message.offset)
+        }
+        
+        // Extract actual message body
+        bytes calldata body = message[32:];
+
         bytes32 messageId = keccak256(
             abi.encodePacked(
                 origin,
@@ -304,7 +318,7 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
                 localDomain,
                 bytes32(uint256(uint160(address(this)))),
                 nonce,
-                message
+                body
             )
         );
 
@@ -319,7 +333,7 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
             sender: sender,
             recipient: bytes32(uint256(uint160(address(this)))),
             nonce: nonce,
-            body: message,
+            body: body,
             messageId: messageId,
             timestamp: block.timestamp,
             verified: true
@@ -328,7 +342,7 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
         emit MessageProcessed(messageId, origin, sender, message);
 
         // Process the message
-        _handleMessage(origin, sender, message);
+        _handleMessage(origin, sender, body);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -390,20 +404,45 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
     }
 
     function _verifyMultisig(
-        bytes32 messageId,
-        bytes memory, // metadata not used in simplified version (memory for internal calls)
+        bytes32,
+        bytes memory metadata,
         uint32 originDomain
     ) internal view returns (bool) {
         MultisigISMParams storage params = multisigParams[originDomain];
 
-        // Check threshold met
-        if (signatureCount[messageId] < params.threshold) {
-            return false;
+        // FIX: Verify signatures from metadata
+        bytes[] memory signatures = abi.decode(metadata, (bytes[]));
+
+        if (signatures.length < params.threshold) {
+             return false;
         }
 
-        // In production, verify each signature
-        // For now, just check count
-        return true;
+        uint8 validSignatures = 0;
+        address lastSigner = address(0);
+
+        for (uint256 i = 0; i < signatures.length; i++) {
+            // Recover signer
+            address signer = ECDSA.recover(params.commitment, signatures[i]);
+            
+            // Check duplications (signatures must be sorted/unique)
+            if (signer <= lastSigner) continue;
+            lastSigner = signer;
+
+            // Check if signer is validator
+            bool isValidator = false;
+            for (uint256 j = 0; j < params.validators.length; j++) {
+                if (params.validators[j] == signer) {
+                    isValidator = true;
+                    break;
+                }
+            }
+
+            if (isValidator) {
+                validSignatures++;
+            }
+        }
+
+        return validSignatures >= params.threshold;
     }
 
     function _verifyMerkle(
@@ -487,10 +526,14 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
     function _dispatchToMailbox(
         uint32 destinationDomain,
         bytes32 recipient,
-        bytes calldata message
+        bytes memory message
     ) internal {
-        // In production, call mailbox.dispatch{value: msg.value}(...)
-        // This is a placeholder
+        // FIX: Call actual mailbox
+        IMailbox(mailbox).dispatch{value: msg.value}(
+            destinationDomain,
+            recipient,
+            message
+        );
     }
 
     function _handleMessage(
@@ -629,4 +672,12 @@ contract HyperlaneAdapter is ReentrancyGuard, AccessControl, Pausable {
      * @notice Receive native tokens
      */
     receive() external payable {}
+}
+
+interface IMailbox {
+    function dispatch(
+        uint32 destinationDomain,
+        bytes32 recipientBody,
+        bytes calldata messageBody
+    ) external payable returns (bytes32 messageId);
 }
