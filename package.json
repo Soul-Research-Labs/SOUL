@@ -57,7 +57,10 @@
     "security:monthly": "npm run security:deep && npm run security:mutation && npm run certora:full",
     "precommit:install": "pip install pre-commit && pre-commit install",
     "gas:report": "forge test --gas-report",
-    "gas:snapshot": "forge snapshot"
+    "gas:snapshot": "forge snapshot",
+    "noir:install": "./scripts/install_noir.sh",
+    "noir:codegen": "./scripts/generate_verifiers.sh",
+    "build:all": "npm run noir:codegen && npm run compile"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.4",
