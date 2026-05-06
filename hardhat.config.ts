@@ -1,6 +1,7 @@
 import { defineConfig } from "hardhat/config";
 import hardhatMocha from "@nomicfoundation/hardhat-mocha";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
+import hardhatFoundry from "@nomicfoundation/hardhat-foundry";
 import "@nomicfoundation/hardhat-ethers";
 import * as dotenv from "dotenv";
 
@@ -19,7 +20,7 @@ const LINEASCAN_API_KEY = process.env.LINEASCAN_API_KEY || "";
 const ZKSYNC_API_KEY = process.env.ZKSYNC_API_KEY || "";
 
 export default defineConfig({
-  plugins: [hardhatMocha, hardhatViem],
+  plugins: [hardhatMocha, hardhatViem, hardhatFoundry],
 
   paths: {
     sources: "./contracts",

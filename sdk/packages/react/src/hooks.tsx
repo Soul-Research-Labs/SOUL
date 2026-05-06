@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Soulv2ClientFactory,
-  Soulv2Config,
+  Zaseonv2ClientFactory as Soulv2ClientFactory,
+  Zaseonv2Config as Soulv2Config,
   Container,
   ContainerCreationParams,
   DisclosurePolicy,
@@ -261,9 +261,9 @@ function useContainers(
           .getContainerIds(fetchOffset, limit);
         const data = (
           await Promise.all(
-            containerIds.map((id) => client.getPC3().getContainer(id)),
+            containerIds.map((id: Hex) => client.getPC3().getContainer(id)),
           )
-        ).filter((c): c is Container => c !== null);
+        ).filter((c: Container | null): c is Container => c !== null);
 
         if (reset) {
           setContainers(data);
@@ -616,7 +616,7 @@ interface UseGasEstimateResult {
 
 function useGasEstimate(
   method: string,
-  params: unknown[],
+  params: Record<string, unknown>[],
 ): UseGasEstimateResult {
   const { client } = useSoul();
 

@@ -13,7 +13,7 @@ module.exports = {
       },
     ],
   },
-  setupFilesAfterSetup: [],
+  setupFilesAfterEnv: [],
   setupFiles: ["./jest.setup.js"],
   moduleNameMapper: {
     "^../../../src/index$": "<rootDir>/src/__mocks__/sdk.ts",

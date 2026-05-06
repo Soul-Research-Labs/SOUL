@@ -1,5 +1,5 @@
 import React from "react";
-import { renderHook, act } from "@testing-library/react-hooks";
+import { renderHook, act } from "@testing-library/react";
 import {
   SoulProvider,
   useSoul,
@@ -29,9 +29,7 @@ function createWrapper(config = {}) {
 
 describe("useSoul", () => {
   it("throws when used outside SoulProvider", () => {
-    const { result } = renderHook(() => useSoul());
-    expect(result.error).toBeDefined();
-    expect(result.error?.message).toContain(
+    expect(() => renderHook(() => useSoul())).toThrow(
       "useSoul must be used within a SoulProvider",
     );
   });
