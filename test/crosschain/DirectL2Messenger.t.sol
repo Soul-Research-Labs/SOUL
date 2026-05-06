@@ -103,6 +103,28 @@ contract DirectL2MessengerTest is Test {
         messenger.approveRelayer(relayer);
     }
 
+    /// @dev Helper: derive the FAST_RELAYER_DOMAIN-bound messageId expected
+    ///      by `receiveViaRelayer`. Mirrors the on-chain derivation exactly;
+    ///      any drift here means the binding check is effectively untested.
+    function _expectedMessageId(
+        uint256 srcChain,
+        address sender_,
+        address recipient_,
+        bytes memory payload
+    ) internal view returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    messenger.FAST_RELAYER_DOMAIN(),
+                    srcChain,
+                    block.chainid,
+                    sender_,
+                    recipient_,
+                    payload
+                )
+            );
+    }
+
     function test_constructor_setsAdmin() public view {
         assertTrue(messenger.hasRole(messenger.DEFAULT_ADMIN_ROLE(), admin));
     }
@@ -314,10 +336,15 @@ contract DirectL2MessengerTest is Test {
         _registerAndApprove(r2);
         _registerAndApprove(r3);
 
-        // Prepare message hash
-        bytes32 messageId = keccak256("msg1");
+        // Prepare content-bound messageId (FAST_RELAYER_DOMAIN check)
         uint256 srcChain = 42161;
         bytes memory payload = bytes("hello");
+        bytes32 messageId = _expectedMessageId(
+            srcChain,
+            user,
+            address(recipient),
+            payload
+        );
 
         bytes32 messageHash = keccak256(
             abi.encode(
@@ -385,8 +412,13 @@ contract DirectL2MessengerTest is Test {
         _registerAndApprove(r2);
         _registerAndApprove(r3);
 
-        bytes32 messageId = keccak256("msg2");
         bytes memory payload = bytes("hello");
+        bytes32 messageId = _expectedMessageId(
+            42161,
+            user,
+            address(recipient),
+            payload
+        );
 
         bytes32 messageHash = keccak256(
             abi.encode(
@@ -430,6 +462,123 @@ contract DirectL2MessengerTest is Test {
             payload,
             sigs
         );
+    }
+
+    /// @notice SECURITY: a caller-supplied messageId that does NOT match the
+    /// FAST_RELAYER_DOMAIN-bound derivation must revert before signature
+    /// recovery. Regression guard for the Pass-5 replay fix.
+    function test_receiveViaRelayer_revertsOnSpoofedMessageId() public {
+        (address r1, uint256 pk1) = makeAddrAndKey("bind_r1");
+        (address r2, uint256 pk2) = makeAddrAndKey("bind_r2");
+        (address r3, uint256 pk3) = makeAddrAndKey("bind_r3");
+
+        vm.deal(r1, 2 ether);
+        vm.deal(r2, 2 ether);
+        vm.deal(r3, 2 ether);
+
+        _registerAndApprove(r1);
+        _registerAndApprove(r2);
+        _registerAndApprove(r3);
+
+        uint256 srcChain = 42161;
+        bytes memory payload = bytes("bind-me");
+
+        // Attacker substitutes an arbitrary messageId while signing the real
+        // content tuple. Even with a valid quorum, the receive path MUST
+        // reject because messageId is not bound to the content.
+        bytes32 spoofedId = keccak256("attacker-chosen-id");
+        bytes32 messageHash = keccak256(
+            abi.encode(
+                spoofedId,
+                srcChain,
+                block.chainid,
+                user,
+                address(recipient),
+                payload
+            )
+        );
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(
+            messageHash
+        );
+
+        (uint8 v1, bytes32 r1s, bytes32 s1s) = vm.sign(pk1, ethSignedHash);
+        (uint8 v2, bytes32 r2s, bytes32 s2s) = vm.sign(pk2, ethSignedHash);
+        (uint8 v3, bytes32 r3s, bytes32 s3s) = vm.sign(pk3, ethSignedHash);
+
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = abi.encodePacked(r1s, s1s, v1);
+        sigs[1] = abi.encodePacked(r2s, s2s, v2);
+        sigs[2] = abi.encodePacked(r3s, s3s, v3);
+
+        vm.expectRevert(DirectL2Messenger.InvalidMessage.selector);
+        messenger.receiveViaRelayer(
+            spoofedId,
+            srcChain,
+            user,
+            address(recipient),
+            payload,
+            sigs
+        );
+
+        // Sanity: the same payload with the correct domain-bound id succeeds.
+        bytes32 boundId = _expectedMessageId(
+            srcChain,
+            user,
+            address(recipient),
+            payload
+        );
+        bytes32 boundMessageHash = keccak256(
+            abi.encode(
+                boundId,
+                srcChain,
+                block.chainid,
+                user,
+                address(recipient),
+                payload
+            )
+        );
+        bytes32 boundEthHash = MessageHashUtils.toEthSignedMessageHash(
+            boundMessageHash
+        );
+        (v1, r1s, s1s) = vm.sign(pk1, boundEthHash);
+        (v2, r2s, s2s) = vm.sign(pk2, boundEthHash);
+        (v3, r3s, s3s) = vm.sign(pk3, boundEthHash);
+        bytes[] memory boundSigs = new bytes[](3);
+        boundSigs[0] = abi.encodePacked(r1s, s1s, v1);
+        boundSigs[1] = abi.encodePacked(r2s, s2s, v2);
+        boundSigs[2] = abi.encodePacked(r3s, s3s, v3);
+        messenger.receiveViaRelayer(
+            boundId,
+            srcChain,
+            user,
+            address(recipient),
+            payload,
+            boundSigs
+        );
+        assertTrue(messenger.isMessageProcessed(boundId));
+    }
+
+    /// @notice Domain separation: the same sender/recipient/payload tuple on a
+    /// different sourceChainId must produce a different messageId, so a
+    /// quorum signed for chain A cannot be replayed as chain B.
+    function test_receiveViaRelayer_messageIdDomainSeparation()
+        public
+        view
+    {
+        bytes memory payload = bytes("same-payload");
+        bytes32 idChainA = _expectedMessageId(
+            1,
+            user,
+            address(recipient),
+            payload
+        );
+        bytes32 idChainB = _expectedMessageId(
+            2,
+            user,
+            address(recipient),
+            payload
+        );
+        assertTrue(idChainA != idChainB, "source chain must separate id");
     }
 
     // ============ Receive Message Tests (Superchain) ============
@@ -508,8 +657,13 @@ contract DirectL2MessengerTest is Test {
         _registerAndApprove(r2);
         _registerAndApprove(r3);
 
-        bytes32 messageId = keccak256("challenge_msg");
         bytes memory payload = bytes("data");
+        bytes32 messageId = _expectedMessageId(
+            10,
+            user,
+            address(recipient),
+            payload
+        );
 
         bytes32 messageHash = keccak256(
             abi.encode(
@@ -585,8 +739,13 @@ contract DirectL2MessengerTest is Test {
         _registerAndApprove(r2);
         _registerAndApprove(r3);
 
-        bytes32 messageId = keccak256("resolve_msg");
         bytes memory payload = bytes("data");
+        bytes32 messageId = _expectedMessageId(
+            10,
+            user,
+            address(recipient),
+            payload
+        );
 
         bytes32 msgHash = keccak256(
             abi.encode(

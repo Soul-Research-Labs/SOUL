@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ZKBoundStateLocksUpgradeable} from "../../contracts/upgradeable/ZKBoundStateLocksUpgradeable.sol";
 import {MockProofVerifier} from "../../contracts/mocks/MockProofVerifier.sol";
+import {BN254ScalarField} from "../../contracts/libraries/BN254ScalarField.sol";
 
 /**
  * @title ZKBoundStateLocksUpgradeable Tests
@@ -21,11 +22,14 @@ contract ZKBoundStateLocksUpgradeableTest is Test {
     address operator = makeAddr("operator");
     address challenger = makeAddr("challenger");
 
-    bytes32 constant OLD_STATE = keccak256("oldState");
-    bytes32 constant NEW_STATE = keccak256("newState");
-    bytes32 constant PREDICATE = keccak256("predicate");
+    uint256 constant FIELD_SIZE =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
+    bytes32 constant OLD_STATE = bytes32(uint256(1));
+    bytes32 constant NEW_STATE = bytes32(uint256(2));
+    bytes32 constant PREDICATE = bytes32(uint256(3));
     bytes32 constant POLICY = bytes32(0);
-    bytes32 constant NULLIFIER = keccak256("nullifier");
+    bytes32 constant NULLIFIER = bytes32(uint256(4));
     bytes32 constant VK_HASH = keccak256("verifier_key");
 
     bytes32 testDomain;
@@ -212,6 +216,38 @@ contract ZKBoundStateLocksUpgradeableTest is Test {
 
         assertEq(locks.totalLocksUnlocked(), 1);
         assertTrue(locks.nullifierUsed(NULLIFIER));
+    }
+
+    function test_Unlock_RegisteredVerifierRejectsOutOfFieldPublicInput()
+        public
+    {
+        bytes32 overflowingState = bytes32(uint256(FIELD_SIZE));
+        bytes32 lockId = locks.createLock(
+            overflowingState,
+            PREDICATE,
+            POLICY,
+            _getDefaultDomain(),
+            0
+        );
+
+        ZKBoundStateLocksUpgradeable.UnlockProof
+            memory proof = ZKBoundStateLocksUpgradeable.UnlockProof({
+                lockId: lockId,
+                zkProof: hex"deadbeef",
+                newStateCommitment: NEW_STATE,
+                nullifier: NULLIFIER,
+                verifierKeyHash: VK_HASH,
+                auxiliaryData: ""
+            });
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BN254ScalarField.FieldElementOutOfRange.selector,
+                uint256(0),
+                overflowingState
+            )
+        );
+        locks.unlock(proof);
     }
 
     function test_Unlock_InvalidProofReverts() public {

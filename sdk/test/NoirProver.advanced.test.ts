@@ -285,7 +285,7 @@ describe("NoirProver (advanced)", () => {
         pathElements: ["0x" + "11".repeat(32)] as any,
         pathIndices: [0] as any,
       } as any);
-      expect(result.publicInputs).to.deep.equal([root, leaf]);
+      expect(result.publicInputs).to.deep.equal([leaf, root]);
     });
   });
 

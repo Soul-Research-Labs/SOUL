@@ -16,6 +16,10 @@ import { formatEther, parseEther, type Address, keccak256, toHex } from "viem";
 
 const DEPLOYMENT_LOG_DIR = "./deployments";
 
+const PRODUCTION_CHAIN_IDS = new Set([
+  1, 10, 42161, 8453, 534352, 59144, 324, 1101,
+]);
+
 // Role hashes (precomputed to match on-chain)
 const REGISTRAR_ROLE = keccak256(toHex("REGISTRAR_ROLE"));
 const BRIDGE_ROLE = keccak256(toHex("BRIDGE_ROLE"));
@@ -50,6 +54,17 @@ async function main() {
   console.log("Network:", hre.network.name);
   console.log("Chain ID:", chainId);
   console.log("");
+
+  if (
+    PRODUCTION_CHAIN_IDS.has(chainId) &&
+    process.env.ALLOW_MOCK_VERIFIER_DEPLOY !== "true"
+  ) {
+    throw new Error(
+      "Refusing to run legacy MockProofVerifier deployment on a production chain. " +
+        "Use scripts/deploy/DeployMainnet.s.sol with real verifier registration, " +
+        "or set ALLOW_MOCK_VERIFIER_DEPLOY=true only for an audited dry run.",
+    );
+  }
 
   if (balance < parseEther("0.1")) {
     console.error(

@@ -50,6 +50,11 @@ compilation_restrictions = [
     { paths = "contracts/upgradeable/UniversalShieldedPoolUpgradeable.sol", max_optimizer_runs = 1 },
     { paths = "contracts/upgradeable/PrivacyRouterUpgradeable.sol", max_optimizer_runs = 1 },
     { paths = "contracts/crosschain/CrossChainCommitmentRelay.sol", max_optimizer_runs = 200 },
+    # `pairingCheck` takes 8 fixed-size memory arrays and unpacks them into
+    # 24 memory slots — 20+ expr_mpos entries blow the Yul stack at the
+    # default runs. Pinning to 1 keeps the precompile call inline without
+    # aggressive scheduling.
+    { paths = "contracts/verifiers/GasOptimizedVerifier.sol", max_optimizer_runs = 1 },
 ]
 
 # Gas reporting for optimization tracking

@@ -135,7 +135,19 @@ export {
   type MerkleProofInputs,
   type NullifierInputs,
   type BalanceProofInputs,
+  type LiquidityProofInputs,
 } from "./zkprover/NoirProver";
+
+export {
+  CIRCUIT_REGISTRY,
+  ALL_REGISTERED_CIRCUITS,
+  getCircuitMetadata,
+  getRegisteredPublicInputs,
+  isRegisteredCircuit,
+  validateCircuitArtifact,
+  type CircuitMetadata,
+  type RegisteredCircuit,
+} from "./zkprover/CircuitRegistry";
 
 // Privacy (Stealth, RingCT, Nullifiers)
 export * from "./privacy";

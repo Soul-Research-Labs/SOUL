@@ -97,6 +97,7 @@ contract NullifierRegistryV3UpgradeableTest is Test {
 
         assertEq(index, 0);
         assertTrue(registry.isNullifierUsed(NULLIFIER_1));
+        assertTrue(registry.isNullifierUsedFor(block.chainid, NULLIFIER_1));
         assertTrue(registry.exists(NULLIFIER_1));
         assertEq(registry.totalNullifiers(), 1);
     }
@@ -208,6 +209,34 @@ contract NullifierRegistryV3UpgradeableTest is Test {
 
         assertTrue(registry.isNullifierUsed(NULLIFIER_1));
         assertTrue(registry.isNullifierUsed(NULLIFIER_2));
+        assertTrue(registry.isNullifierUsedFor(sourceChain, NULLIFIER_1));
+        assertTrue(registry.isNullifierUsedFor(sourceChain, NULLIFIER_2));
+    }
+
+    function test_ReceiveCrossChainNullifiers_MarksScopedCollision() public {
+        uint256 sourceChain = 42161;
+
+        vm.prank(registrar);
+        registry.registerNullifier(NULLIFIER_1, COMMITMENT_1);
+
+        bytes32[] memory nullifiers = new bytes32[](1);
+        nullifiers[0] = NULLIFIER_1;
+
+        bytes32[] memory commitments = new bytes32[](1);
+        commitments[0] = COMMITMENT_2;
+
+        vm.prank(bridgeRole);
+        registry.receiveCrossChainNullifiers(
+            sourceChain,
+            nullifiers,
+            commitments,
+            keccak256("source_root")
+        );
+
+        assertEq(registry.totalNullifiers(), 1);
+        assertEq(registry.chainNullifierCount(sourceChain), 1);
+        assertTrue(registry.isNullifierUsedFor(block.chainid, NULLIFIER_1));
+        assertTrue(registry.isNullifierUsedFor(sourceChain, NULLIFIER_1));
     }
 
     function test_ReceiveCrossChainNullifiers_SameChainReverts() public {

@@ -119,12 +119,18 @@ contract NullifierRegistryV3Upgradeable is
     /// @notice Contract version for upgrade tracking
     uint256 public contractVersion;
 
+    /// @notice Domain-separated nullifier existence check keyed by (sourceChainId, nullifier)
+    mapping(bytes32 => bool) public isScopedNullifierUsed;
+
+    /// @notice Reference count for each root in the ring buffer
+    mapping(bytes32 => uint256) private _rootRefCount;
+
     /*//////////////////////////////////////////////////////////////
                             STORAGE GAP
     //////////////////////////////////////////////////////////////*/
 
     /// @dev Reserved storage gap for future upgrades
-    uint256[50] private __gap;
+    uint256[48] private __gap;
 
     /*//////////////////////////////////////////////////////////////
                                 EVENTS
@@ -302,13 +308,33 @@ contract NullifierRegistryV3Upgradeable is
 
         for (uint256 i = 0; i < len; ) {
             bytes32 nullifier = _nullifiers[i];
+            bytes32 scopedKey = scopeKey(sourceChainId_, nullifier);
+            bytes32 commitment = _commitments.length > i
+                ? _commitments[i]
+                : bytes32(0);
 
-            if (!isNullifierUsed[nullifier]) {
-                _registerCrossChainNullifier(
-                    nullifier,
-                    _commitments.length > i ? _commitments[i] : bytes32(0),
-                    sourceChainId_
-                );
+            if (!isScopedNullifierUsed[scopedKey]) {
+                if (!isNullifierUsed[nullifier]) {
+                    _registerCrossChainNullifier(
+                        nullifier,
+                        commitment,
+                        sourceChainId_
+                    );
+                } else {
+                    // SECURITY: Preserve scoped replay protection even when the
+                    // legacy flat mapping rejects insertion due to a raw collision.
+                    isScopedNullifierUsed[scopedKey] = true;
+                    unchecked {
+                        ++chainNullifierCount[sourceChainId_];
+                    }
+                    emit NullifierRegistered(
+                        nullifier,
+                        commitment,
+                        nullifiers[nullifier].index,
+                        msg.sender,
+                        sourceChainId_.toUint64()
+                    );
+                }
             }
             unchecked {
                 ++i;
@@ -346,6 +372,7 @@ contract NullifierRegistryV3Upgradeable is
         });
 
         isNullifierUsed[nullifier] = true;
+        isScopedNullifierUsed[scopeKey(sourceChainId_, nullifier)] = true;
         _insertIntoTree(nullifier);
 
         unchecked {
@@ -383,6 +410,7 @@ contract NullifierRegistryV3Upgradeable is
         });
 
         isNullifierUsed[nullifier] = true;
+        isScopedNullifierUsed[scopeKey(chainId, nullifier)] = true;
         _insertIntoTree(nullifier);
 
         unchecked {
@@ -429,12 +457,23 @@ contract NullifierRegistryV3Upgradeable is
     /// @param root The root to add
     function _addRootToHistory(bytes32 root) internal {
         bytes32 evictedRoot = rootHistory[rootHistoryIndex];
-        if (evictedRoot != bytes32(0) && evictedRoot != root) {
-            historicalRoots[evictedRoot] = false;
+        if (evictedRoot != bytes32(0)) {
+            uint256 count = _rootRefCount[evictedRoot];
+            if (count <= 1) {
+                _rootRefCount[evictedRoot] = 0;
+                historicalRoots[evictedRoot] = false;
+            } else {
+                unchecked {
+                    _rootRefCount[evictedRoot] = count - 1;
+                }
+            }
         }
 
         rootHistory[rootHistoryIndex] = root;
         historicalRoots[root] = true;
+        unchecked {
+            ++_rootRefCount[root];
+        }
 
         unchecked {
             rootHistoryIndex = (rootHistoryIndex + 1) % ROOT_HISTORY_SIZE;
@@ -471,6 +510,23 @@ contract NullifierRegistryV3Upgradeable is
      */
     function exists(bytes32 nullifier) external view returns (bool) {
         return isNullifierUsed[nullifier];
+    }
+
+    /// @notice Compute the domain-separated scope key for a (chainId, nullifier) tuple.
+    function scopeKey(
+        uint256 sourceChainId_,
+        bytes32 nullifier
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(sourceChainId_, nullifier));
+    }
+
+    /// @notice Check whether a nullifier was registered with a specific source chain.
+    /// @dev Preferred over {isNullifierUsed} for cross-chain-aware consumers.
+    function isNullifierUsedFor(
+        uint256 sourceChainId_,
+        bytes32 nullifier
+    ) external view returns (bool) {
+        return isScopedNullifierUsed[scopeKey(sourceChainId_, nullifier)];
     }
 
     /// @notice Batch checks if nullifiers exist

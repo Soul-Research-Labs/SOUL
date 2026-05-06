@@ -7,6 +7,7 @@ import {
   createProver,
   type CircuitArtifact,
 } from "../src/zkprover/NoirProver";
+import { ALL_REGISTERED_CIRCUITS } from "../src/zkprover/CircuitRegistry";
 
 /**
  * Tests that verify real Noir circuit artifacts load correctly.
@@ -18,30 +19,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 const NOIR_TARGET = (circuit: string) =>
   path.join(PROJECT_ROOT, "noir", "target", `${circuit}.json`);
 
-// All 21 circuits in the workspace
-const ALL_CIRCUITS = [
-  "accredited_investor",
-  "aggregator",
-  "balance_proof",
-  "compliance_proof",
-  "container",
-  "cross_chain_proof",
-  "cross_domain_nullifier",
-  "encrypted_transfer",
-  "liquidity_proof",
-  "merkle_proof",
-  "nullifier",
-  "pedersen_commitment",
-  "policy",
-  "policy_bound_proof",
-  "private_transfer",
-  "ring_signature",
-  "sanctions_check",
-  "shielded_pool",
-  "state_commitment",
-  "state_transfer",
-  "swap_proof",
-];
+const ALL_CIRCUITS = ALL_REGISTERED_CIRCUITS;
 
 describe("NoirProver (compiled artifacts)", () => {
   describe("artifact files exist", () => {

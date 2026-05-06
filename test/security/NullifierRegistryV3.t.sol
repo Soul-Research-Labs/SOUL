@@ -28,6 +28,7 @@ contract NullifierRegistryV3Test is Test {
 
         assertEq(index, 0);
         assertTrue(registry.isNullifierUsed(nullifier));
+        assertTrue(registry.isNullifierUsedFor(block.chainid, nullifier));
         assertEq(registry.totalNullifiers(), 1);
     }
 
@@ -192,6 +193,8 @@ contract NullifierRegistryV3Test is Test {
         assertEq(registry.totalNullifiers(), 2);
         assertEq(registry.getNullifierCountByChain(42), 2);
         assertTrue(registry.isNullifierUsed(nullifiers[0]));
+        assertTrue(registry.isNullifierUsedFor(42, nullifiers[0]));
+        assertTrue(registry.isNullifierUsedFor(42, nullifiers[1]));
     }
 
     function test_receiveCrossChain_revertsSameChain() public {
@@ -203,6 +206,21 @@ contract NullifierRegistryV3Test is Test {
         vm.expectRevert(INullifierRegistryV3.InvalidChainId.selector);
         registry.receiveCrossChainNullifiers(
             block.chainid,
+            nullifiers,
+            commitments,
+            bytes32(0)
+        );
+    }
+
+    function test_receiveCrossChain_revertsSourceChainIdAboveUint64() public {
+        bytes32[] memory nullifiers = new bytes32[](1);
+        nullifiers[0] = keccak256("oversized-chain");
+        bytes32[] memory commitments = new bytes32[](0);
+
+        vm.prank(bridge);
+        vm.expectRevert(INullifierRegistryV3.InvalidChainId.selector);
+        registry.receiveCrossChainNullifiers(
+            uint256(type(uint64).max) + 1,
             nullifiers,
             commitments,
             bytes32(0)
@@ -228,6 +246,35 @@ contract NullifierRegistryV3Test is Test {
 
         // Should still be 1, not 2 (duplicate skipped)
         assertEq(registry.totalNullifiers(), 1);
+        assertEq(registry.getNullifierCountByChain(42), 1);
+        assertTrue(registry.isNullifierUsedFor(block.chainid, nullifier));
+        assertTrue(registry.isNullifierUsedFor(42, nullifier));
+    }
+
+    function test_receiveCrossChain_marksScopedCollision() public {
+        bytes32 nullifier = keccak256("scoped-collision");
+
+        vm.prank(registrar);
+        registry.registerNullifier(nullifier, bytes32(0));
+
+        bytes32[] memory nullifiers = new bytes32[](1);
+        nullifiers[0] = nullifier;
+        bytes32[] memory commitments = new bytes32[](1);
+        commitments[0] = keccak256("foreign-commitment");
+
+        uint256 sourceChain = 42;
+        vm.prank(bridge);
+        registry.receiveCrossChainNullifiers(
+            sourceChain,
+            nullifiers,
+            commitments,
+            keccak256("foreign-root")
+        );
+
+        assertEq(registry.totalNullifiers(), 1);
+        assertEq(registry.getNullifierCountByChain(sourceChain), 1);
+        assertTrue(registry.isNullifierUsedFor(sourceChain, nullifier));
+        assertTrue(registry.isNullifierUsedFor(block.chainid, nullifier));
     }
 
     // ======= View Functions =======

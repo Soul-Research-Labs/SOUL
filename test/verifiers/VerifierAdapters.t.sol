@@ -361,6 +361,58 @@ contract VerifierAdaptersTest is Test {
         ultraHonkAdapter.verify(SAMPLE_PROOF, pubInputs);
     }
 
+    function test_UltraHonk_FieldOverflowUint256Array() public {
+        uint256[] memory pubInputs = new uint256[](4);
+        pubInputs[0] = 1;
+        pubInputs[1] = 2;
+        pubInputs[2] = BN254_R;
+        pubInputs[3] = 4;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UltraHonkAdapter.FieldElementOutOfRange.selector,
+                2,
+                BN254_R
+            )
+        );
+        ultraHonkAdapter.verify(SAMPLE_PROOF, pubInputs);
+    }
+
+    function test_UltraHonk_FieldOverflowBytesInterface() public {
+        uint256[] memory inputs = new uint256[](4);
+        inputs[0] = 1;
+        inputs[1] = 2;
+        inputs[2] = 3;
+        inputs[3] = BN254_R;
+        bytes memory pubInputs = abi.encode(inputs);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UltraHonkAdapter.FieldElementOutOfRange.selector,
+                3,
+                BN254_R
+            )
+        );
+        ultraHonkAdapter.verifyProof(SAMPLE_PROOF, pubInputs);
+    }
+
+    function test_UltraHonk_FieldOverflowSingle() public {
+        UltraHonkAdapter singleInputAdapter = new UltraHonkAdapter(
+            address(mockVerifier),
+            1,
+            keccak256("single_input_test")
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UltraHonkAdapter.FieldElementOutOfRange.selector,
+                0,
+                BN254_R
+            )
+        );
+        singleInputAdapter.verifySingle(SAMPLE_PROOF, BN254_R);
+    }
+
     function test_UltraHonk_CircuitId() public view {
         assertEq(ultraHonkAdapter.circuitId(), keccak256("test_circuit"));
     }

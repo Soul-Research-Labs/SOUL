@@ -453,8 +453,9 @@ export class ZaseonSDK {
     return this.relayer.subscribe(chainId, async (packet: RelayerPacket) => {
       // Decrypt with ECIES using receiver's private key
       let decrypted: Buffer;
+      let privateKeyBuf: Buffer | undefined;
       try {
-        const privateKeyBuf = Buffer.from(
+        privateKeyBuf = Buffer.from(
           this.config.privateKey.replace(/^0x/, ""),
           "hex",
         );
@@ -469,6 +470,8 @@ export class ZaseonSDK {
           `Decryption failed: ${e instanceof Error ? e.message : String(e)}`,
         );
         return; // Skip this packet — cannot decrypt
+      } finally {
+        privateKeyBuf?.fill(0);
       }
 
       if (!packet.stateRoot) {

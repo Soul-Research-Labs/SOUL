@@ -122,7 +122,10 @@ contract ZaseonUpgradeTimelock is TimelockController, IZaseonUpgradeTimelock {
     event MinSignaturesChangeCancelled(uint256 cancelledValue);
 
     /// @notice Emitted when the governor address wired into the timelock is rotated.
-    event GovernorUpdated(address indexed oldGovernor, address indexed newGovernor);
+    event GovernorUpdated(
+        address indexed oldGovernor,
+        address indexed newGovernor
+    );
 
     /*//////////////////////////////////////////////////////////////
                               ERRORS

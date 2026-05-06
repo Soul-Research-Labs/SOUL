@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
+import {BN254ScalarField} from "../libraries/BN254ScalarField.sol";
 
 /**
  * @title ZKBoundStateLocks (ZK-SLocks)
@@ -986,6 +987,8 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
             publicInputs[3] = lock.policyHash;
             publicInputs[4] = lock.domainSeparator;
             publicInputs[5] = unlockProof.nullifier;
+
+            BN254ScalarField.validateMemory(publicInputs);
 
             // Call verifier
             (bool success, bytes memory returnData) = verifier.staticcall(

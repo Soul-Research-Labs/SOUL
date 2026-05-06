@@ -13,7 +13,7 @@ import {
   decodeEventLog,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { type RelayerConfig, type ChainConfig } from "./config.js";
+import { type RelayerConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import {
   SUBMIT_PROOF_ABI,
@@ -22,6 +22,14 @@ import {
 } from "./abi.js";
 
 const logger = createLogger("queue");
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timers = globalThis as typeof globalThis & {
+      setTimeout: (callback: () => void, ms: number) => unknown;
+    };
+    timers.setTimeout(resolve, ms);
+  });
 
 export interface RelayTask {
   id: string;
@@ -38,103 +46,352 @@ export interface RelayTask {
   commitment?: string;
   proofData?: Uint8Array;
   error?: string;
+  failedAt?: number;
 }
+
+interface ChainMetric {
+  success: number;
+  failure: number;
+}
+
+interface CircuitBreakerSample {
+  timestamp: number;
+  success: boolean;
+}
+
+export interface CircuitBreakerState {
+  chain: string;
+  open: boolean;
+  sampleCount: number;
+  failures: number;
+  successes: number;
+  failureRate: number;
+  threshold: number;
+  windowMs: number;
+}
+
+export interface QueueSnapshot {
+  queueSize: number;
+  inFlight: number;
+  dlqSize: number;
+  running: boolean;
+  processing: boolean;
+  currentTaskId?: string;
+  completedTaskCount: number;
+  duplicateTasksSkipped: number;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  circuitBreakers: CircuitBreakerState[];
+}
+
+export type RelayTaskProcessor = (task: RelayTask) => Promise<void>;
 
 export class ProofQueue {
   private queue: RelayTask[] = [];
+  private deadLetterQueue: RelayTask[] = [];
+  private queuedTaskIds = new Set<string>();
+  private inFlightTaskIds = new Set<string>();
+  private completedTaskIds = new Set<string>();
+  private deadLetterTaskIds = new Set<string>();
+  private circuitBreakerSamples = new Map<string, CircuitBreakerSample[]>();
   private processing = false;
   private running = false;
+  private loopPromise: Promise<void> | null = null;
+  private currentTask: RelayTask | null = null;
 
   /** Prometheus-compatible counters */
   public metrics = {
     tasksTotal: 0,
     tasksSucceeded: 0,
     tasksFailed: 0,
+    tasksDeadLettered: 0,
+    duplicateTasksSkipped: 0,
+    circuitBreakerPauses: 0,
     totalLatencyMs: 0,
     totalRetries: 0,
     totalGasUsed: 0n,
-    perChain: new Map<string, { success: number; failure: number }>(),
+    lastSuccessAt: undefined as number | undefined,
+    lastFailureAt: undefined as number | undefined,
+    perChain: new Map<string, ChainMetric>(),
   };
 
-  constructor(private config: RelayerConfig) {}
+  constructor(
+    private config: RelayerConfig,
+    private taskProcessor?: RelayTaskProcessor,
+  ) {}
 
   async start(): Promise<void> {
+    if (this.running) return;
+
     logger.info("Starting proof queue processor...");
     this.running = true;
-    this._processLoop();
+    this.loopPromise = this._processLoop();
   }
 
-  async drain(): Promise<void> {
-    logger.info({ pending: this.queue.length }, "Draining queue...");
+  async drain(timeoutMs = this.config.drainTimeoutMs): Promise<void> {
+    logger.info(
+      { pending: this.queue.length, inFlight: this.inFlightTaskIds.size },
+      "Draining queue...",
+    );
     this.running = false;
+
+    const deadline = Date.now() + timeoutMs;
+    while (this.processing && Date.now() < deadline) {
+      await delay(25);
+    }
+
+    if (this.processing) {
+      throw new Error(
+        `Timed out draining proof queue after ${timeoutMs}ms with task ${this.currentTask?.id ?? "unknown"}`,
+      );
+    }
+
+    if (this.loopPromise) {
+      await this.loopPromise;
+      this.loopPromise = null;
+    }
   }
 
-  enqueue(task: RelayTask): void {
+  enqueue(task: RelayTask): boolean {
+    if (this.hasSeenTask(task.id)) {
+      this.metrics.duplicateTasksSkipped++;
+      logger.warn({ taskId: task.id }, "Duplicate relay task skipped");
+      return false;
+    }
+
     this.queue.push(task);
+    this.queuedTaskIds.add(task.id);
     logger.debug(
       { taskId: task.id, queueSize: this.queue.length },
       "Task enqueued",
     );
+    return true;
   }
 
   get size(): number {
     return this.queue.length;
   }
 
+  get inFlight(): number {
+    return this.inFlightTaskIds.size;
+  }
+
+  get dlqSize(): number {
+    return this.deadLetterQueue.length;
+  }
+
+  getDeadLetterTasks(limit = 50): RelayTask[] {
+    return this.deadLetterQueue.slice(0, limit).map((task) => ({ ...task }));
+  }
+
+  replayDeadLetterTask(taskId: string): boolean {
+    const index = this.deadLetterQueue.findIndex((task) => task.id === taskId);
+    if (index === -1) return false;
+
+    const [task] = this.deadLetterQueue.splice(index, 1);
+    this.deadLetterTaskIds.delete(taskId);
+    delete task.error;
+    delete task.failedAt;
+    task.retries = 0;
+    return this.enqueue(task);
+  }
+
+  getSnapshot(): QueueSnapshot {
+    return {
+      queueSize: this.queue.length,
+      inFlight: this.inFlightTaskIds.size,
+      dlqSize: this.deadLetterQueue.length,
+      running: this.running,
+      processing: this.processing,
+      currentTaskId: this.currentTask?.id,
+      completedTaskCount: this.completedTaskIds.size,
+      duplicateTasksSkipped: this.metrics.duplicateTasksSkipped,
+      lastSuccessAt: this.metrics.lastSuccessAt,
+      lastFailureAt: this.metrics.lastFailureAt,
+      circuitBreakers: this.getCircuitBreakerStates(),
+    };
+  }
+
+  isCircuitBreakerOpen(chainKey: string): boolean {
+    return this.getCircuitBreakerState(chainKey).open;
+  }
+
+  async processNext(): Promise<boolean> {
+    if (this.processing || this.queue.length === 0) return false;
+
+    const task = this.queue.shift()!;
+    this.queuedTaskIds.delete(task.id);
+
+    const chainKey = this.taskChainKey(task);
+    if (this.isCircuitBreakerOpen(chainKey)) {
+      this.metrics.circuitBreakerPauses++;
+      this.requeueTask(task);
+      logger.warn(
+        { taskId: task.id, chain: chainKey },
+        "Circuit breaker open; relay task re-queued without retry increment",
+      );
+      return false;
+    }
+
+    this.processing = true;
+    this.currentTask = task;
+    this.inFlightTaskIds.add(task.id);
+
+    try {
+      const start = Date.now();
+      await this.processTask(task);
+      const latency = Date.now() - start;
+      this.recordSuccess(task, latency);
+      logger.info({ taskId: task.id, latencyMs: latency }, "Task completed");
+    } catch (err) {
+      this.recordFailure(task, err);
+    } finally {
+      this.inFlightTaskIds.delete(task.id);
+      this.currentTask = null;
+      this.processing = false;
+    }
+
+    return true;
+  }
+
   private async _processLoop(): Promise<void> {
     while (this.running) {
-      if (this.queue.length > 0 && !this.processing) {
-        this.processing = true;
-        const task = this.queue.shift()!;
-
-        try {
-          const start = Date.now();
-          await this._processTask(task);
-          const latency = Date.now() - start;
-          this.metrics.tasksTotal++;
-          this.metrics.tasksSucceeded++;
-          this.metrics.totalLatencyMs += latency;
-          const destKey = task.destChainId?.toString() ?? "unknown";
-          const chainMetric = this.metrics.perChain.get(destKey) ?? {
-            success: 0,
-            failure: 0,
-          };
-          chainMetric.success++;
-          this.metrics.perChain.set(destKey, chainMetric);
-          logger.info(
-            { taskId: task.id, latencyMs: latency },
-            "Task completed",
-          );
-        } catch (err) {
-          task.retries++;
-          task.error = (err as Error).message;
-          this.metrics.totalRetries++;
-
-          if (task.retries < this.config.maxRetries) {
-            logger.warn(
-              { taskId: task.id, retries: task.retries },
-              "Task failed, re-queueing",
-            );
-            this.queue.push(task);
-          } else {
-            this.metrics.tasksTotal++;
-            this.metrics.tasksFailed++;
-            const destKey = task.destChainId?.toString() ?? "unknown";
-            const chainMetric = this.metrics.perChain.get(destKey) ?? {
-              success: 0,
-              failure: 0,
-            };
-            chainMetric.failure++;
-            this.metrics.perChain.set(destKey, chainMetric);
-            logger.error({ taskId: task.id }, "Task permanently failed");
-          }
-        }
-
-        this.processing = false;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await this.processNext();
+      await delay(1000);
     }
+  }
+
+  private hasSeenTask(taskId: string): boolean {
+    return (
+      this.queuedTaskIds.has(taskId) ||
+      this.inFlightTaskIds.has(taskId) ||
+      this.completedTaskIds.has(taskId) ||
+      this.deadLetterTaskIds.has(taskId)
+    );
+  }
+
+  private requeueTask(task: RelayTask): void {
+    this.queue.push(task);
+    this.queuedTaskIds.add(task.id);
+  }
+
+  private recordSuccess(task: RelayTask, latency: number): void {
+    this.completedTaskIds.add(task.id);
+    this.metrics.tasksTotal++;
+    this.metrics.tasksSucceeded++;
+    this.metrics.totalLatencyMs += latency;
+    this.metrics.lastSuccessAt = Date.now();
+    this.recordChainResult(task, true);
+  }
+
+  private recordFailure(task: RelayTask, err: unknown): void {
+    task.retries++;
+    task.error = err instanceof Error ? err.message : String(err);
+    this.metrics.totalRetries++;
+    this.recordChainResult(task, false);
+
+    if (task.retries < this.config.maxRetries) {
+      logger.warn(
+        { taskId: task.id, retries: task.retries, error: task.error },
+        "Task failed, re-queueing",
+      );
+      this.requeueTask(task);
+      return;
+    }
+
+    this.moveToDeadLetter(task);
+  }
+
+  private moveToDeadLetter(task: RelayTask): void {
+    task.failedAt = Date.now();
+    this.metrics.tasksTotal++;
+    this.metrics.tasksFailed++;
+    this.metrics.tasksDeadLettered++;
+    this.metrics.lastFailureAt = task.failedAt;
+    this.deadLetterQueue.push({ ...task });
+    this.deadLetterTaskIds.add(task.id);
+
+    const maxSize = this.config.deadLetterQueueMaxSize;
+    while (this.deadLetterQueue.length > maxSize) {
+      const evicted = this.deadLetterQueue.shift();
+      if (evicted) this.deadLetterTaskIds.delete(evicted.id);
+    }
+
+    logger.error(
+      { taskId: task.id, retries: task.retries, error: task.error },
+      "Task permanently failed and moved to DLQ",
+    );
+  }
+
+  private recordChainResult(task: RelayTask, success: boolean): void {
+    const chainKey = this.taskChainKey(task);
+    const chainMetric = this.metrics.perChain.get(chainKey) ?? {
+      success: 0,
+      failure: 0,
+    };
+    if (success) {
+      chainMetric.success++;
+    } else {
+      chainMetric.failure++;
+    }
+    this.metrics.perChain.set(chainKey, chainMetric);
+
+    const samples = this.prunedSamples(chainKey);
+    samples.push({ timestamp: Date.now(), success });
+    this.circuitBreakerSamples.set(chainKey, samples);
+  }
+
+  private getCircuitBreakerStates(): CircuitBreakerState[] {
+    const chainKeys = new Set<string>([
+      ...Array.from(this.circuitBreakerSamples.keys()),
+      ...Array.from(this.metrics.perChain.keys()),
+    ]);
+    return Array.from(chainKeys, (chainKey) =>
+      this.getCircuitBreakerState(chainKey),
+    );
+  }
+
+  private getCircuitBreakerState(chainKey: string): CircuitBreakerState {
+    const samples = this.prunedSamples(chainKey);
+    const failures = samples.filter((sample) => !sample.success).length;
+    const successes = samples.length - failures;
+    const failureRate =
+      samples.length === 0 ? 0 : Math.round((failures * 100) / samples.length);
+    const open =
+      samples.length >= this.config.circuitBreakerMinSamples &&
+      failureRate >= this.config.circuitBreakerFailureThreshold;
+
+    return {
+      chain: chainKey,
+      open,
+      sampleCount: samples.length,
+      failures,
+      successes,
+      failureRate,
+      threshold: this.config.circuitBreakerFailureThreshold,
+      windowMs: this.config.circuitBreakerWindowMs,
+    };
+  }
+
+  private prunedSamples(chainKey: string): CircuitBreakerSample[] {
+    const cutoff = Date.now() - this.config.circuitBreakerWindowMs;
+    const samples = (this.circuitBreakerSamples.get(chainKey) ?? []).filter(
+      (sample) => sample.timestamp >= cutoff,
+    );
+    this.circuitBreakerSamples.set(chainKey, samples);
+    return samples;
+  }
+
+  private taskChainKey(task: RelayTask): string {
+    return task.destChainId?.toString() ?? task.targetChain ?? "unknown";
+  }
+
+  private async processTask(task: RelayTask): Promise<void> {
+    if (this.taskProcessor) {
+      await this.taskProcessor(task);
+      return;
+    }
+    await this._processTask(task);
   }
 
   private async _processTask(task: RelayTask): Promise<void> {

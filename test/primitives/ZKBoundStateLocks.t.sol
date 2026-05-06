@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../../contracts/primitives/ZKBoundStateLocks.sol";
 import "../../contracts/interfaces/IProofVerifier.sol";
+import {BN254ScalarField} from "../../contracts/libraries/BN254ScalarField.sol";
 
 /// @notice Mock proof verifier that allows controlling verification results
 contract MockZKVerifier is IProofVerifier {
@@ -102,14 +103,18 @@ contract ZKBoundStateLocksTest is Test {
     address public disputeResolver = makeAddr("disputeResolver");
     address public recovery = makeAddr("recovery");
 
+    uint256 constant FIELD_SIZE =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
     // Default domain — Ethereum mainnet
     bytes32 public ethDomain;
 
     // Common test values
-    bytes32 constant STATE_COMMIT = keccak256("oldState");
-    bytes32 constant TRANSITION_HASH = keccak256("transition");
-    bytes32 constant POLICY_HASH = keccak256("policy");
-    bytes32 constant NULLIFIER = keccak256("nullifier1");
+    bytes32 constant STATE_COMMIT = bytes32(uint256(1));
+    bytes32 constant TRANSITION_HASH = bytes32(uint256(2));
+    bytes32 constant POLICY_HASH = bytes32(uint256(3));
+    bytes32 constant NULLIFIER = bytes32(uint256(4));
+    bytes32 constant NEW_STATE = bytes32(uint256(5));
     bytes32 constant VK_HASH = keccak256("vk1");
 
     function setUp() public {
@@ -334,7 +339,7 @@ contract ZKBoundStateLocksTest is Test {
             ZKBoundStateLocks.UnlockProof({
                 lockId: lockId,
                 zkProof: hex"deadbeef",
-                newStateCommitment: keccak256("newState"),
+                newStateCommitment: NEW_STATE,
                 nullifier: NULLIFIER,
                 verifierKeyHash: VK_HASH,
                 auxiliaryData: ""
@@ -368,6 +373,33 @@ contract ZKBoundStateLocksTest is Test {
         zksl.unlock(proof);
 
         assertTrue(zksl.getLock(lockId).isUnlocked);
+    }
+
+    function test_Unlock_RegisteredVerifierRejectsOutOfFieldPublicInput()
+        public
+    {
+        bytes32 overflowingState = bytes32(uint256(FIELD_SIZE));
+        vm.prank(user1);
+        bytes32 lockId = zksl.createLock(
+            overflowingState,
+            TRANSITION_HASH,
+            POLICY_HASH,
+            ethDomain,
+            0
+        );
+        zksl.registerVerifier(VK_HASH, address(verifier));
+
+        ZKBoundStateLocks.UnlockProof memory proof = _buildUnlockProof(lockId);
+
+        vm.prank(user2);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BN254ScalarField.FieldElementOutOfRange.selector,
+                uint256(0),
+                overflowingState
+            )
+        );
+        zksl.unlock(proof);
     }
 
     function test_Unlock_RevertNonExistentLock() public {
@@ -474,7 +506,7 @@ contract ZKBoundStateLocksTest is Test {
 
     function test_Unlock_TracksCommitmentChain() public {
         bytes32 lockId = _createDefaultLock();
-        bytes32 newCommit = keccak256("newState");
+        bytes32 newCommit = NEW_STATE;
 
         ZKBoundStateLocks.UnlockProof memory proof = _buildUnlockProof(lockId);
         zksl.unlock(proof);
@@ -500,7 +532,7 @@ contract ZKBoundStateLocksTest is Test {
         ) = zksl.unlockReceipts(lockId);
 
         assertEq(receiptLockId, lockId);
-        assertEq(newCommit, keccak256("newState"));
+        assertEq(newCommit, NEW_STATE);
         assertEq(nullifier, NULLIFIER);
         assertEq(domain, ethDomain);
         assertEq(unlockedBy, user2);
@@ -1061,7 +1093,7 @@ contract ZKBoundStateLocksTest is Test {
         bytes32[] memory chain = zksl.getCommitmentChain(STATE_COMMIT, 5);
         assertEq(chain.length, 2);
         assertEq(chain[0], STATE_COMMIT);
-        assertEq(chain[1], keccak256("newState"));
+        assertEq(chain[1], NEW_STATE);
     }
 
     function test_GetStats() public {

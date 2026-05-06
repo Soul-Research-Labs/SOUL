@@ -114,27 +114,43 @@ function keccak256Hex(asciiHex: string): string {
 // Intentionally local: avoids SDK consumers paying the cost of a full
 // crypto dep just for a one-shot checksum validator.
 const RC = [
-  0x0000000000000001n, 0x0000000000008082n, 0x800000000000808an,
-  0x8000000080008000n, 0x000000000000808bn, 0x0000000080000001n,
-  0x8000000080008081n, 0x8000000000008009n, 0x000000000000008an,
-  0x0000000000000088n, 0x0000000080008009n, 0x000000008000000an,
-  0x000000008000808bn, 0x800000000000008bn, 0x8000000000008089n,
-  0x8000000000008003n, 0x8000000000008002n, 0x8000000000000080n,
-  0x000000000000800an, 0x800000008000000an, 0x8000000080008081n,
-  0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n,
+  0x0000000000000001n,
+  0x0000000000008082n,
+  0x800000000000808an,
+  0x8000000080008000n,
+  0x000000000000808bn,
+  0x0000000080000001n,
+  0x8000000080008081n,
+  0x8000000000008009n,
+  0x000000000000008an,
+  0x0000000000000088n,
+  0x0000000080008009n,
+  0x000000008000000an,
+  0x000000008000808bn,
+  0x800000000000008bn,
+  0x8000000000008089n,
+  0x8000000000008003n,
+  0x8000000000008002n,
+  0x8000000000000080n,
+  0x000000000000800an,
+  0x800000008000000an,
+  0x8000000080008081n,
+  0x8000000000008080n,
+  0x0000000080000001n,
+  0x8000000080008008n,
 ];
 const ROTC = [
-  1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18,
-  39, 61, 20, 44,
+  1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39,
+  61, 20, 44,
 ];
 const PI = [
-  10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14,
-  22, 9, 6, 1,
+  10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22,
+  9, 6, 1,
 ];
 const MASK64 = (1n << 64n) - 1n;
 function rotl64(x: bigint, n: number): bigint {
   const s = BigInt(n);
-  return (((x << s) | (x >> (64n - s))) & MASK64);
+  return ((x << s) | (x >> (64n - s))) & MASK64;
 }
 function keccakF(st: BigUint64Array): void {
   for (let round = 0; round < 24; round++) {
@@ -154,7 +170,11 @@ function keccakF(st: BigUint64Array): void {
       t = tmp;
     }
     for (let j = 0; j < 25; j += 5) {
-      const a0 = st[j], a1 = st[j + 1], a2 = st[j + 2], a3 = st[j + 3], a4 = st[j + 4];
+      const a0 = st[j],
+        a1 = st[j + 1],
+        a2 = st[j + 2],
+        a3 = st[j + 3],
+        a4 = st[j + 4];
       st[j] = (a0 ^ (~a1 & a2)) & MASK64;
       st[j + 1] = (a1 ^ (~a2 & a3)) & MASK64;
       st[j + 2] = (a2 ^ (~a3 & a4)) & MASK64;
@@ -245,7 +265,9 @@ export async function assertRpcChainMatches(
     }),
   });
   if (!res.ok) {
-    throw new Error(`chainRegistry: RPC probe failed (${res.status}) for ${slug}`);
+    throw new Error(
+      `chainRegistry: RPC probe failed (${res.status}) for ${slug}`,
+    );
   }
   const body = (await res.json()) as { result?: string };
   if (!body.result) {

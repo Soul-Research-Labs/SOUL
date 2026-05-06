@@ -6,6 +6,13 @@
  */
 
 import { Hex, keccak256, encodePacked } from "viem";
+import {
+  assertRegisteredCircuit,
+  extractRegisteredPublicInputs,
+  flattenPublicInputValue,
+  getCircuitMetadata,
+  validateCircuitArtifact,
+} from "./CircuitRegistry";
 
 /*//////////////////////////////////////////////////////////////
                         TYPES
@@ -69,6 +76,12 @@ export interface ProverOptions {
    * placeholder proofs when the Barretenberg backend is unavailable.
    */
   mode?: ProverMode;
+  /**
+   * Require witness inputs to include the circuit's declared public inputs.
+   * Defaults to `true` in production and `false` in development to preserve
+   * compatibility with legacy mock-proof tests.
+   */
+  strictPublicInputs?: boolean;
 }
 
 /*//////////////////////////////////////////////////////////////
@@ -115,6 +128,8 @@ export enum Circuit {
   Aggregator = "aggregator",
   /** Encrypted transfer proof */
   EncryptedTransfer = "encrypted_transfer",
+  /** Cross-chain liquidity proof */
+  LiquidityProof = "liquidity_proof",
   /** Ring signature proof */
   RingSignature = "ring_signature",
   /** Private transfer proof */
@@ -244,6 +259,14 @@ export interface PrivateTransferInputs {
   nullifier: Hex;
 }
 
+export interface LiquidityProofInputs {
+  lock_commitment: Hex | string;
+  pool_commitment: Hex | string;
+  nullifier: Hex | string;
+  transfer_amount_hash: Hex | string;
+  timestamp_bound: bigint | string;
+}
+
 /*//////////////////////////////////////////////////////////////
                     NOIR PROVER
 //////////////////////////////////////////////////////////////*/
@@ -262,16 +285,19 @@ export class NoirProver {
   private circuits: Map<Circuit, CircuitArtifact> = new Map();
   /** Operating mode — controls placeholder proof behavior */
   public readonly mode: ProverMode;
+  private readonly strictPublicInputs: boolean;
 
   constructor(options?: ProverOptions) {
     this.mode = options?.mode ?? NoirProver.detectMode();
+    this.strictPublicInputs =
+      options?.strictPublicInputs ?? this.mode === "production";
   }
 
   /**
    * Detect the appropriate prover mode from the environment.
    * Returns `'production'` when `NODE_ENV === 'production'`, otherwise `'development'`.
    */
-  private static detectMode(): ProverMode {
+  static detectMode(): ProverMode {
     try {
       if (
         typeof process !== "undefined" &&
@@ -321,8 +347,9 @@ export class NoirProver {
    * Load a circuit artifact
    */
   async loadCircuit(circuit: Circuit): Promise<CircuitArtifact> {
-    if (this.circuits.has(circuit)) {
-      return this.circuits.get(circuit)!;
+    const circuitId = assertRegisteredCircuit(String(circuit));
+    if (this.circuits.has(circuitId as Circuit)) {
+      return this.circuits.get(circuitId as Circuit)!;
     }
 
     try {
@@ -330,11 +357,19 @@ export class NoirProver {
       const fs = await import("fs/promises");
       const path = await import("path");
 
+      const metadata = getCircuitMetadata(circuitId);
+
       // Workspace compilation: noir/target/{circuit}.json
       // Per-project compilation: noir/{circuit}/target/{circuit}.json
       const candidates = [
-        path.join(process.cwd(), "noir", "target", `${circuit}.json`),
-        path.join(process.cwd(), "noir", circuit, "target", `${circuit}.json`),
+        path.join(process.cwd(), "noir", "target", `${metadata.artifact}.json`),
+        path.join(
+          process.cwd(),
+          "noir",
+          metadata.artifact,
+          "target",
+          `${metadata.artifact}.json`,
+        ),
       ];
 
       let data: string | undefined;
@@ -348,27 +383,29 @@ export class NoirProver {
       }
 
       if (!data) {
-        throw new Error(`Circuit artifact not found for ${circuit}`);
+        throw new Error(`Circuit artifact not found for ${circuitId}`);
       }
 
       const artifact = JSON.parse(data) as CircuitArtifact;
+      validateCircuitArtifact(circuitId, artifact);
 
-      this.circuits.set(circuit, artifact);
+      this.circuits.set(circuitId as Circuit, artifact);
       return artifact;
     } catch (e) {
       if (this.mode === "production") {
         throw new Error(
-          `Circuit ${circuit} not found — cannot load circuits in production mode. ` +
-            `Expected at: noir/target/${circuit}.json or noir/${circuit}/target/${circuit}.json`,
+          `Circuit ${circuitId} not found or invalid — cannot load circuits in production mode. ` +
+            `Expected at: noir/target/${circuitId}.json or noir/${circuitId}/target/${circuitId}.json. ` +
+            `${e instanceof Error ? e.message : String(e)}`,
         );
       }
       // Return placeholder artifact
-      console.warn(`⚠️ Circuit ${circuit} not found, using placeholder`);
+      console.warn(`⚠️ Circuit ${circuitId} not found, using placeholder`);
       const placeholder: CircuitArtifact = {
         bytecode: "",
         abi: { parameters: [], return_type: null },
       };
-      this.circuits.set(circuit, placeholder);
+      this.circuits.set(circuitId as Circuit, placeholder);
       return placeholder;
     }
   }
@@ -481,7 +518,13 @@ export class NoirProver {
     const publicParams = abi.parameters.filter(
       (p) => p.visibility === "public",
     );
-    return publicParams.map((p) => String(inputs[p.name] ?? "0"));
+    const inputRecord = inputs as Record<string, unknown>;
+    return publicParams.flatMap((p) => {
+      if (!Object.hasOwn(inputRecord, p.name)) {
+        throw new Error(`Missing public input '${p.name}' for Noir circuit`);
+      }
+      return flattenPublicInputValue(inputRecord[p.name]);
+    });
   }
 
   /**
@@ -539,6 +582,22 @@ export class NoirProver {
     circuit: Circuit,
     inputs: WitnessInput,
   ): string[] {
+    const registeredPublicInputs = extractRegisteredPublicInputs(
+      String(circuit),
+      inputs as Record<string, unknown>,
+    );
+    if (registeredPublicInputs) {
+      return registeredPublicInputs;
+    }
+
+    if (this.strictPublicInputs) {
+      const expected = getCircuitMetadata(String(circuit)).publicInputs;
+      throw new Error(
+        `Missing declared public inputs for ${circuit}: expected [${expected.join(", ")}]. ` +
+          "Pass strictPublicInputs=false only for legacy development mock-proof tests.",
+      );
+    }
+
     switch (circuit) {
       case Circuit.StateCommitment: {
         // Public: commitment (derived from secret + nullifier when available)
@@ -679,12 +738,22 @@ export class NoirProver {
       inputs as unknown as WitnessInput,
     );
   }
+
+  /**
+   * Generate a cross-chain liquidity attestation proof.
+   */
+  async proveLiquidity(inputs: LiquidityProofInputs): Promise<ProofResult> {
+    return this.generateProof(
+      Circuit.LiquidityProof,
+      inputs as unknown as WitnessInput,
+    );
+  }
 }
 
 /**
  * Singleton prover instance
  */
-let _prover: NoirProver | null = null;
+const _provers = new Map<string, NoirProver>();
 
 /**
  * Get the global prover instance.
@@ -692,11 +761,20 @@ let _prover: NoirProver | null = null;
  * Pass `options` to override the detected mode.
  */
 export async function getProver(options?: ProverOptions): Promise<NoirProver> {
-  if (!_prover) {
-    _prover = new NoirProver(options);
-    await _prover.initialize();
+  const mode = options?.mode ?? NoirProver.detectMode();
+  const strictPublicInputs =
+    options?.strictPublicInputs ?? mode === "production";
+  const key = `${mode}:${strictPublicInputs ? "strict" : "compat"}`;
+
+  const existing = _provers.get(key);
+  if (existing) {
+    return existing;
   }
-  return _prover;
+
+  const prover = new NoirProver({ ...options, mode, strictPublicInputs });
+  await prover.initialize();
+  _provers.set(key, prover);
+  return prover;
 }
 
 /**

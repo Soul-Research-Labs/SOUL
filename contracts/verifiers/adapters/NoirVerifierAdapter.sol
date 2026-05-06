@@ -26,10 +26,15 @@ interface INoirVerifier {
  * @dev Handles decoding of generic bytes public inputs into Noir's expected bytes32[]
  */
 abstract contract NoirVerifierAdapter is IProofVerifier {
+    /// @notice BN254 scalar field order used by Noir public inputs
+    uint256 private constant BN254_R =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
     /// @notice The auto-generated Noir verifier contract
     address public immutable noirVerifier;
 
     error VerificationFailed();
+    error FieldElementOutOfRange(uint256 index, uint256 value);
 
     constructor(address _noirVerifier) {
         noirVerifier = _noirVerifier;
@@ -48,30 +53,16 @@ abstract contract NoirVerifierAdapter is IProofVerifier {
         bytes calldata publicInputs
     ) external view virtual returns (bool);
 
-    /**
-     * @inheritdoc IProofVerifier
-     */
-        /**
-     * @notice Returns the public input count
-     * @return The result value
-     */
-function getPublicInputCount()
+    /// @inheritdoc IProofVerifier
+    function getPublicInputCount()
         external
         view
         virtual
         override
         returns (uint256);
 
-    /**
-     * @inheritdoc IProofVerifier
-     */
-        /**
-     * @notice Verifys proof
-     * @param proof The ZK proof data
-     * @param publicInputs The public inputs
-     * @return The result value
-     */
-function verifyProof(
+    /// @inheritdoc IProofVerifier
+    function verifyProof(
         bytes calldata proof,
         bytes calldata publicInputs
     ) external view override returns (bool) {
@@ -79,16 +70,8 @@ function verifyProof(
         return this.verify(bytes32(0), proof, publicInputs);
     }
 
-    /**
-     * @inheritdoc IProofVerifier
-     */
-        /**
-     * @notice Verifys the operation
-     * @param proof The ZK proof data
-     * @param publicInputs The public inputs
-     * @return The result value
-     */
-function verify(
+    /// @inheritdoc IProofVerifier
+    function verify(
         bytes calldata proof,
         uint256[] calldata publicInputs
     ) external view override returns (bool) {
@@ -96,6 +79,9 @@ function verify(
         bytes32[] memory signals = new bytes32[](len);
 
         for (uint256 i = 0; i < len; ) {
+            if (publicInputs[i] >= BN254_R) {
+                revert FieldElementOutOfRange(i, publicInputs[i]);
+            }
             signals[i] = bytes32(publicInputs[i]);
             unchecked {
                 ++i;
@@ -106,32 +92,21 @@ function verify(
         return _verifyNoir(proof, signals);
     }
 
-    /**
-     * @inheritdoc IProofVerifier
-     */
-        /**
-     * @notice Verifys single
-     * @param proof The ZK proof data
-     * @param publicInput The public input
-     * @return The result value
-     */
-function verifySingle(
+    /// @inheritdoc IProofVerifier
+    function verifySingle(
         bytes calldata proof,
         uint256 publicInput
     ) external view override returns (bool) {
+        if (publicInput >= BN254_R) {
+            revert FieldElementOutOfRange(0, publicInput);
+        }
         bytes32[] memory signals = new bytes32[](1);
         signals[0] = bytes32(publicInput);
         return _verifyNoir(proof, signals);
     }
 
-    /**
-     * @inheritdoc IProofVerifier
-     */
-        /**
-     * @notice Checks if ready
-     * @return The result value
-     */
-function isReady() external view override returns (bool) {
+    /// @inheritdoc IProofVerifier
+    function isReady() external view override returns (bool) {
         return noirVerifier != address(0);
     }
 

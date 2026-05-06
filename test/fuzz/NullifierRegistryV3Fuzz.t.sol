@@ -184,4 +184,40 @@ contract NullifierRegistryV3FuzzTest is Test {
 
         vm.stopPrank();
     }
+
+    /// @notice A raw nullifier collision from another chain still marks the scoped tuple.
+    function testFuzz_receiveCrossChain_marksScopedCollision(
+        bytes32 nullifier,
+        bytes32 localCommitment,
+        bytes32 foreignCommitment,
+        uint256 sourceChainSeed
+    ) public {
+        vm.assume(nullifier != bytes32(0));
+
+        uint256 sourceChain = bound(sourceChainSeed, 1, type(uint64).max);
+        if (sourceChain == block.chainid) {
+            sourceChain = sourceChain == 1 ? 2 : sourceChain - 1;
+        }
+
+        vm.prank(registrar);
+        registry.registerNullifier(nullifier, localCommitment);
+
+        bytes32[] memory nulls = new bytes32[](1);
+        nulls[0] = nullifier;
+        bytes32[] memory comms = new bytes32[](1);
+        comms[0] = foreignCommitment;
+
+        vm.prank(bridge);
+        registry.receiveCrossChainNullifiers(
+            sourceChain,
+            nulls,
+            comms,
+            keccak256("source-root")
+        );
+
+        assertEq(registry.totalNullifiers(), 1);
+        assertEq(registry.getNullifierCountByChain(sourceChain), 1);
+        assertTrue(registry.isNullifierUsedFor(sourceChain, nullifier));
+        assertTrue(registry.isNullifierUsedFor(block.chainid, nullifier));
+    }
 }

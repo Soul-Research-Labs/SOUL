@@ -113,6 +113,7 @@ contract NullifierRegistryV3 is INullifierRegistryV3, AccessControl, Pausable {
 
     /// @notice Initializes the nullifier registry
     constructor() {
+        if (block.chainid > type(uint64).max) revert InvalidChainId();
         CHAIN_ID = block.chainid;
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -199,6 +200,7 @@ contract NullifierRegistryV3 is INullifierRegistryV3, AccessControl, Pausable {
         bytes32 sourceMerkleRoot
     ) external onlyRole(BRIDGE_ROLE) whenNotPaused {
         if (sourceChainId == CHAIN_ID) revert InvalidChainId();
+        if (sourceChainId > type(uint64).max) revert InvalidChainId();
 
         uint256 len = _nullifiers.length;
         if (len == 0) revert EmptyBatch();
@@ -206,13 +208,35 @@ contract NullifierRegistryV3 is INullifierRegistryV3, AccessControl, Pausable {
 
         for (uint256 i = 0; i < len; ) {
             bytes32 nullifier = _nullifiers[i];
+            bytes32 scopedKey = scopeKey(sourceChainId, nullifier);
+            bytes32 commitment = _commitments.length > i
+                ? _commitments[i]
+                : bytes32(0);
 
-            if (!isNullifierUsed[nullifier]) {
-                _registerCrossChainNullifier(
-                    nullifier,
-                    _commitments.length > i ? _commitments[i] : bytes32(0),
-                    sourceChainId
-                );
+            if (!isScopedNullifierUsed[scopedKey]) {
+                if (!isNullifierUsed[nullifier]) {
+                    _registerCrossChainNullifier(
+                        nullifier,
+                        commitment,
+                        sourceChainId
+                    );
+                } else {
+                    // SECURITY: A raw nullifier collision from another source chain
+                    // must still mark this (sourceChainId, nullifier) tuple as used.
+                    // Otherwise scoped consumers could incorrectly treat the tuple as
+                    // unspent even though the legacy flat registry rejected insertion.
+                    isScopedNullifierUsed[scopedKey] = true;
+                    unchecked {
+                        ++chainNullifierCount[sourceChainId];
+                    }
+                    emit NullifierRegistered(
+                        nullifier,
+                        commitment,
+                        nullifiers[nullifier].index,
+                        msg.sender,
+                        uint64(sourceChainId)
+                    );
+                }
             }
             unchecked {
                 ++i;
@@ -247,9 +271,7 @@ contract NullifierRegistryV3 is INullifierRegistryV3, AccessControl, Pausable {
             // C4 FIX: Additionally record the (sourceChainId, nullifier) tuple
             // so downstream consumers can guard against cross-chain replay
             // even if two chains produce identical raw nullifiers.
-            isScopedNullifierUsed[
-                keccak256(abi.encode(sourceChainId, nullifier))
-            ] = true;
+            isScopedNullifierUsed[scopeKey(sourceChainId, nullifier)] = true;
             _insertIntoTree(nullifier);
         }
 
@@ -298,9 +320,7 @@ contract NullifierRegistryV3 is INullifierRegistryV3, AccessControl, Pausable {
             // C4 FIX: Also record the local-chain scoped key so that a single
             // `isNullifierUsedFor(chainId, n)` view works uniformly for both
             // locally-registered and cross-chain-relayed nullifiers.
-            isScopedNullifierUsed[
-                keccak256(abi.encode(CHAIN_ID, nullifier))
-            ] = true;
+            isScopedNullifierUsed[scopeKey(CHAIN_ID, nullifier)] = true;
 
             // Insert into merkle tree and update root
             _insertIntoTree(nullifier);

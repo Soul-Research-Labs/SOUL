@@ -39,6 +39,10 @@ interface IUltraHonkVerifier {
  *      other core contracts expect.
  */
 contract UltraHonkAdapter is IProofVerifier {
+    /// @notice BN254 scalar field order used by Noir/Barretenberg public inputs
+    uint256 private constant BN254_R =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
     /// @notice The bb-generated UltraHonk verifier contract
     IUltraHonkVerifier public immutable honkVerifier;
 
@@ -56,6 +60,7 @@ contract UltraHonkAdapter is IProofVerifier {
     error VerifierNotSet();
     error InvalidPublicInputCount(uint256 expected, uint256 actual);
     error ZeroVerifierAddress();
+    error FieldElementOutOfRange(uint256 index, uint256 value);
 
     /**
      * @param _verifier Address of the bb-generated UltraHonk verifier
@@ -95,6 +100,9 @@ contract UltraHonkAdapter is IProofVerifier {
         // Convert uint256[] to bytes32[] for UltraHonk verifier
         bytes32[] memory honkInputs = new bytes32[](publicInputs.length);
         for (uint256 i = 0; i < publicInputs.length; ) {
+            if (publicInputs[i] >= BN254_R) {
+                revert FieldElementOutOfRange(i, publicInputs[i]);
+            }
             honkInputs[i] = bytes32(publicInputs[i]);
             unchecked {
                 ++i;
@@ -123,6 +131,9 @@ contract UltraHonkAdapter is IProofVerifier {
 
         bytes32[] memory honkInputs = new bytes32[](inputs.length);
         for (uint256 i = 0; i < inputs.length; ) {
+            if (inputs[i] >= BN254_R) {
+                revert FieldElementOutOfRange(i, inputs[i]);
+            }
             honkInputs[i] = bytes32(inputs[i]);
             unchecked {
                 ++i;
@@ -145,6 +156,9 @@ contract UltraHonkAdapter is IProofVerifier {
     ) external view override returns (bool success) {
         if (publicInputCount != 1)
             revert InvalidPublicInputCount(1, publicInputCount);
+        if (publicInput >= BN254_R) {
+            revert FieldElementOutOfRange(0, publicInput);
+        }
         bytes32[] memory honkInputs = new bytes32[](1);
         honkInputs[0] = bytes32(publicInput);
         return honkVerifier.verify(proof, honkInputs);

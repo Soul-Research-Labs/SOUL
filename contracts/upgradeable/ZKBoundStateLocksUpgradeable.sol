@@ -8,6 +8,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
+import {BN254ScalarField} from "../libraries/BN254ScalarField.sol";
 
 /**
  * @title ZKBoundStateLocksUpgradeable (ZK-SLocks)
@@ -789,6 +790,8 @@ contract ZKBoundStateLocksUpgradeable is
             publicInputs[3] = lock.policyHash;
             publicInputs[4] = lock.domainSeparator;
             publicInputs[5] = unlockProof.nullifier;
+
+            BN254ScalarField.validateMemory(publicInputs);
 
             (bool success, bytes memory returnData) = verifier.staticcall(
                 abi.encodeWithSignature(

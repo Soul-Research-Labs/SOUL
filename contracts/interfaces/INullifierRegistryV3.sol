@@ -89,6 +89,16 @@ interface INullifierRegistryV3 {
 
     function exists(bytes32 nullifier) external view returns (bool);
 
+    function scopeKey(
+        uint256 sourceChainId,
+        bytes32 nullifier
+    ) external pure returns (bytes32);
+
+    function isNullifierUsedFor(
+        uint256 sourceChainId,
+        bytes32 nullifier
+    ) external view returns (bool);
+
     function batchExists(
         bytes32[] calldata _nullifiers
     ) external view returns (bool[] memory);

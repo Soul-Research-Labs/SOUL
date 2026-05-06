@@ -208,13 +208,17 @@ contract DeployMainnet is Script {
         verifierRegistry = new VerifierRegistryV2();
         console.log("VerifierRegistryV2:", address(verifierRegistry));
 
-        universalVerifier = new ZaseonUniversalVerifier(deployer);
+        universalVerifier = new ZaseonUniversalVerifier();
         console.log("ZaseonUniversalVerifier:", address(universalVerifier));
 
         // ======== PHASE 3: PRIMITIVES ========
         console.log("\n--- Phase 3: Primitives ---");
 
-        zkBoundStateLocks = new ZKBoundStateLocks();
+        // Pass zero as the default verifier so production unlocks must use
+        // explicitly registered per-verification-key verifiers. Passing the
+        // UniversalVerifier here is unsafe because it does not implement the
+        // IProofVerifier(bytes,uint256[]) fallback expected by ZKBoundStateLocks.
+        zkBoundStateLocks = new ZKBoundStateLocks(address(0));
         console.log("ZKBoundStateLocks:", address(zkBoundStateLocks));
 
         proofCarryingContainer = new ProofCarryingContainer();

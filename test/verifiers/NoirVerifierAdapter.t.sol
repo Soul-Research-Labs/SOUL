@@ -61,6 +61,9 @@ contract NoirVerifierAdapterTest is Test {
     TestNoirAdapter public adapter;
     MockNoirVerifier public noirV;
 
+    uint256 constant FIELD_SIZE =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
     address alice = address(0xBEEF);
 
     function setUp() public {
@@ -114,6 +117,21 @@ contract NoirVerifierAdapterTest is Test {
         assertFalse(valid);
     }
 
+    function test_verifyUint256Array_fieldOverflowReverts() public {
+        uint256[] memory inputs = new uint256[](2);
+        inputs[0] = 1;
+        inputs[1] = FIELD_SIZE;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                NoirVerifierAdapter.FieldElementOutOfRange.selector,
+                1,
+                FIELD_SIZE
+            )
+        );
+        adapter.verify(bytes("proof"), inputs);
+    }
+
     // ──────── verifySingle ────────
 
     function test_verifySingle_wrongCountReverts() public {
@@ -127,6 +145,19 @@ contract NoirVerifierAdapterTest is Test {
         TestNoirAdapter adapter1 = new TestNoirAdapter(address(noirV), 1);
         bool valid = adapter1.verifySingle(bytes("proof"), 42);
         assertTrue(valid);
+    }
+
+    function test_verifySingle_fieldOverflowReverts() public {
+        TestNoirAdapter adapter1 = new TestNoirAdapter(address(noirV), 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                NoirVerifierAdapter.FieldElementOutOfRange.selector,
+                0,
+                FIELD_SIZE
+            )
+        );
+        adapter1.verifySingle(bytes("proof"), FIELD_SIZE);
     }
 
     // ──────── verifyProof(bytes, bytes) ────────
@@ -163,9 +194,6 @@ contract NoirVerifierAdapterTest is Test {
     // ──────── _prepareSignals FIELD_OVERFLOW check ────────
 
     function test_prepareSignals_fieldOverflow() public {
-        // The BN254 field size
-        uint256 FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-
         // Create an adapter with 1 input to avoid count mismatch
         TestNoirAdapter adapterOverflow = new TestNoirAdapter(
             address(noirV),
@@ -180,8 +208,6 @@ contract NoirVerifierAdapterTest is Test {
     }
 
     function test_prepareSignals_justBelowFieldSize() public {
-        uint256 FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-
         TestNoirAdapter adapterBelow = new TestNoirAdapter(address(noirV), 1);
         bytes memory pubInputs = abi.encode(
             uint256(1),
@@ -206,7 +232,6 @@ contract NoirVerifierAdapterTest is Test {
         uint256 a,
         uint256 b
     ) public view {
-        uint256 FIELD_SIZE = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
         a = bound(a, 0, FIELD_SIZE - 1);
         b = bound(b, 0, FIELD_SIZE - 1);
 

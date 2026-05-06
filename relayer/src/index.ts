@@ -34,16 +34,30 @@ async function main(): Promise<void> {
   const health = new HealthReporter(config, queue);
 
   // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) {
+      logger.warn({ signal }, "Shutdown already in progress");
+      return;
+    }
+
+    shuttingDown = true;
     logger.info({ signal }, "Shutting down...");
-    await watcher.stop();
-    await queue.drain();
-    await health.stop();
-    process.exit(0);
+
+    try {
+      await watcher.stop();
+      await queue.drain(config.drainTimeoutMs);
+      await health.stop();
+      logger.info("Shutdown complete");
+      process.exit(0);
+    } catch (err) {
+      logger.error({ err }, "Shutdown failed");
+      process.exit(1);
+    }
   };
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
   // Register on-chain if configured
   await ensureRegistered(config);

@@ -25,12 +25,30 @@ import {
   type PreprocessorStorage,
   type PreprocessableCircuit,
 } from "./ProofPreprocessor";
+import {
+  CIRCUIT_REGISTRY,
+  ALL_REGISTERED_CIRCUITS,
+  getCircuitMetadata,
+  getRegisteredPublicInputs,
+  isRegisteredCircuit,
+  validateCircuitArtifact,
+  type CircuitMetadata,
+  type RegisteredCircuit,
+} from "./CircuitRegistry";
 
 /*//////////////////////////////////////////////////////////////
                     RE-EXPORTS
 //////////////////////////////////////////////////////////////*/
 
 export { NoirProver, Circuit, ProofPreprocessor, MemoryPreprocessorStorage };
+export {
+  CIRCUIT_REGISTRY,
+  ALL_REGISTERED_CIRCUITS,
+  getCircuitMetadata,
+  getRegisteredPublicInputs,
+  isRegisteredCircuit,
+  validateCircuitArtifact,
+};
 export type {
   NoirProofResult,
   WitnessInput,
@@ -41,6 +59,7 @@ export type {
   PreprocessorStorage,
   PreprocessableCircuit,
 };
+export type { CircuitMetadata, RegisteredCircuit };
 
 /*//////////////////////////////////////////////////////////////
                     POSEIDON HELPERS

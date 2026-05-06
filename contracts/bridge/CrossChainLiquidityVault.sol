@@ -9,6 +9,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ICrossChainLiquidityVault} from "../interfaces/ICrossChainLiquidityVault.sol";
 import {IRebalanceSwapAdapter} from "../interfaces/IRebalanceSwapAdapter.sol";
 import {ILiquidityProofVerifier} from "../interfaces/ILiquidityProofVerifier.sol";
+import {BN254ScalarField} from "../libraries/BN254ScalarField.sol";
 
 /**
  * @title CrossChainLiquidityVault
@@ -87,6 +88,15 @@ contract CrossChainLiquidityVault is
 
     /// @notice Maximum number of locks to iterate for gas safety
     uint256 public constant MAX_SETTLEMENT_BATCH = 100;
+
+    /// @notice External public inputs expected by the Noir liquidity_proof verifier.
+    uint256 public constant LIQUIDITY_PROOF_PUBLIC_INPUTS = 5;
+
+    /// @notice Maximum age for a liquidity proof timestamp bound.
+    uint256 public constant MAX_LIQUIDITY_PROOF_AGE = 15 minutes;
+
+    /// @notice Allowed future clock drift for liquidity proof timestamp bounds.
+    uint256 public constant MAX_LIQUIDITY_PROOF_FUTURE_DRIFT = 2 minutes;
 
     // =========================================================================
     // PRIVACY CONSTANTS — Timing correlation resistance
@@ -494,6 +504,10 @@ contract CrossChainLiquidityVault is
     ) external override onlyRole(PRIVACY_HUB_ROLE) nonReentrant whenNotPaused {
         if (recipient == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidAmount();
+
+        if (requireLiquidityProofForRelease) {
+            _consumeLiquidityProofAttestation(requestId);
+        }
 
         // PRIVACY: Enforce denomination bucketing on releases too
         if (denominationEnforcement) {
@@ -981,6 +995,21 @@ contract CrossChainLiquidityVault is
     /// @notice Nullifiers consumed by ZK-gated releases (replay prevention).
     mapping(bytes32 => bool) public liquidityProofNullifiers;
 
+    struct LiquidityProofAttestation {
+        bytes32 nullifier;
+        bytes32 proofHash;
+        bytes32 publicInputsHash;
+        uint64 attestedAt;
+        bool released;
+    }
+
+    /// @notice Request-bound liquidity proof attestations.
+    mapping(bytes32 => LiquidityProofAttestation)
+        public liquidityProofAttestations;
+
+    /// @notice When true, destination releases require a prior unused attestation.
+    bool public requireLiquidityProofForRelease;
+
     event LiquidityProofVerifierUpdated(
         address indexed previous,
         address indexed current
@@ -989,10 +1018,28 @@ contract CrossChainLiquidityVault is
         bytes32 indexed requestId,
         bytes32 indexed nullifier
     );
+    event LiquidityProofAttestationRecorded(
+        bytes32 indexed requestId,
+        bytes32 indexed nullifier,
+        bytes32 proofHash,
+        bytes32 publicInputsHash
+    );
+    event LiquidityProofReleaseRequirementUpdated(bool required);
 
     error LiquidityProofVerifierUnset();
     error LiquidityProofInvalid();
     error LiquidityProofNullifierUsed(bytes32 nullifier);
+    error LiquidityProofInvalidPublicInputCount(
+        uint256 expected,
+        uint256 actual
+    );
+    error LiquidityProofTimestampOutOfRange(
+        uint256 proofTimestamp,
+        uint256 blockTimestamp
+    );
+    error LiquidityProofRequestAlreadyAttested(bytes32 requestId);
+    error LiquidityProofAttestationMissing(bytes32 requestId);
+    error LiquidityProofAttestationAlreadyReleased(bytes32 requestId);
 
     /// @notice Wire (or replace) the liquidity-proof verifier.
     function setLiquidityProofVerifier(
@@ -1003,6 +1050,16 @@ contract CrossChainLiquidityVault is
             verifier
         );
         liquidityProofVerifier = ILiquidityProofVerifier(verifier);
+    }
+
+    /// @notice Toggle whether releaseLiquidity requires a prior liquidity proof attestation.
+    /// @dev Defaults to false to preserve legacy role-gated releases. Production
+    ///      deployments that rely on the ZK liquidity path should enable this.
+    function setLiquidityProofRequiredForRelease(
+        bool required
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        requireLiquidityProofForRelease = required;
+        emit LiquidityProofReleaseRequirementUpdated(required);
     }
 
     /**
@@ -1024,10 +1081,23 @@ contract CrossChainLiquidityVault is
         bytes32 requestId,
         bytes calldata proof,
         bytes32[] calldata publicInputs
-    ) external onlyRole(PRIVACY_HUB_ROLE) whenNotPaused {
+    ) external onlyRole(PRIVACY_HUB_ROLE) nonReentrant whenNotPaused {
         if (address(liquidityProofVerifier) == address(0))
             revert LiquidityProofVerifierUnset();
-        if (publicInputs.length < 5) revert LiquidityProofInvalid();
+        if (requestId == bytes32(0)) revert LiquidityProofInvalid();
+        if (publicInputs.length != LIQUIDITY_PROOF_PUBLIC_INPUTS) {
+            revert LiquidityProofInvalidPublicInputCount(
+                LIQUIDITY_PROOF_PUBLIC_INPUTS,
+                publicInputs.length
+            );
+        }
+
+        BN254ScalarField.validateCalldata(publicInputs);
+        _validateLiquidityProofTimestamp(uint256(publicInputs[4]));
+
+        if (liquidityProofAttestations[requestId].attestedAt != 0) {
+            revert LiquidityProofRequestAlreadyAttested(requestId);
+        }
 
         bytes32 nullifier = publicInputs[2];
         if (liquidityProofNullifiers[nullifier])
@@ -1037,7 +1107,50 @@ contract CrossChainLiquidityVault is
         if (!ok) revert LiquidityProofInvalid();
 
         liquidityProofNullifiers[nullifier] = true;
+        bytes32 proofHash = keccak256(proof);
+        bytes32 publicInputsHash = keccak256(abi.encode(publicInputs));
+        liquidityProofAttestations[requestId] = LiquidityProofAttestation({
+            nullifier: nullifier,
+            proofHash: proofHash,
+            publicInputsHash: publicInputsHash,
+            attestedAt: uint64(block.timestamp),
+            released: false
+        });
+
+        emit LiquidityProofAttestationRecorded(
+            requestId,
+            nullifier,
+            proofHash,
+            publicInputsHash
+        );
         emit LiquidityProofConsumed(requestId, nullifier);
+    }
+
+    function _validateLiquidityProofTimestamp(
+        uint256 proofTimestamp
+    ) internal view {
+        if (
+            proofTimestamp >
+            block.timestamp + MAX_LIQUIDITY_PROOF_FUTURE_DRIFT ||
+            proofTimestamp + MAX_LIQUIDITY_PROOF_AGE < block.timestamp
+        ) {
+            revert LiquidityProofTimestampOutOfRange(
+                proofTimestamp,
+                block.timestamp
+            );
+        }
+    }
+
+    function _consumeLiquidityProofAttestation(bytes32 requestId) internal {
+        LiquidityProofAttestation
+            storage attestation = liquidityProofAttestations[requestId];
+        if (attestation.attestedAt == 0) {
+            revert LiquidityProofAttestationMissing(requestId);
+        }
+        if (attestation.released) {
+            revert LiquidityProofAttestationAlreadyReleased(requestId);
+        }
+        attestation.released = true;
     }
 
     /**
