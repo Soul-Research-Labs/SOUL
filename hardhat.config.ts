@@ -3,6 +3,7 @@ import hardhatMocha from "@nomicfoundation/hardhat-mocha";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
 import hardhatFoundry from "@nomicfoundation/hardhat-foundry";
 import "@nomicfoundation/hardhat-ethers";
+import "@nomicfoundation/hardhat-verify";
 import * as dotenv from "dotenv";
 
 dotenv.config({ quiet: true } as any);
@@ -17,18 +18,21 @@ const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY || "";
 const OPTIMISM_API_KEY = process.env.OPTIMISM_API_KEY || "";
 const SCROLLSCAN_API_KEY = process.env.SCROLLSCAN_API_KEY || "";
 const LINEASCAN_API_KEY = process.env.LINEASCAN_API_KEY || "";
-const ZKSYNC_API_KEY = process.env.ZKSYNC_API_KEY || "";
 
 export default defineConfig({
   plugins: [hardhatMocha, hardhatViem, hardhatFoundry],
 
   paths: {
     sources: "./contracts",
-    tests: "./test",
+    tests: {
+      mocha: "./test",
+      // Foundry `.t.sol` tests live under `test/` and are run with `forge`.
+      // Keep Hardhat's Solidity-test path separate so `npx hardhat compile`
+      // doesn't pull the Foundry suite into the Solidity compilation graph.
+      solidity: "./test-hardhat-solidity",
+    },
     cache: "./cache",
     artifacts: "./artifacts",
-    // Exclude generated verifiers that cause YulException
-    ignoreFiles: ["**/generated/**"],
   },
 
   solidity: {
@@ -88,6 +92,30 @@ export default defineConfig({
         settings: {
           optimizer: { enabled: true, runs: 1 },
           viaIR: true,
+          evmVersion: "cancun",
+        },
+      },
+      "contracts/verifiers/GasOptimizedVerifier.sol": {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: true,
+          evmVersion: "cancun",
+        },
+      },
+      "contracts/verifiers/generated/AggregatorHonkVerifier.sol": {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: false,
+          evmVersion: "cancun",
+        },
+      },
+      "contracts/verifiers/generated/LiquidityProofVerifier.sol": {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: false,
           evmVersion: "cancun",
         },
       },
@@ -283,73 +311,10 @@ export default defineConfig({
     },
   },
 
-  etherscan: {
-    apiKey: {
-      mainnet: ETHERSCAN_API_KEY,
-      sepolia: ETHERSCAN_API_KEY,
-      arbitrumOne: ARBISCAN_API_KEY,
-      arbitrumSepolia: ARBISCAN_API_KEY,
-      optimisticEthereum: OPTIMISM_API_KEY,
-      optimisticSepolia: OPTIMISM_API_KEY,
-      base: BASESCAN_API_KEY,
-      baseSepolia: BASESCAN_API_KEY,
-      polygon: POLYGONSCAN_API_KEY,
-      polygonAmoy: POLYGONSCAN_API_KEY,
-      scroll: SCROLLSCAN_API_KEY,
-      scrollSepolia: SCROLLSCAN_API_KEY,
-      linea: LINEASCAN_API_KEY,
-      lineaSepolia: LINEASCAN_API_KEY,
+  verify: {
+    etherscan: {
+      apiKey: ETHERSCAN_API_KEY,
     },
-    customChains: [
-      {
-        network: "zkSync",
-        chainId: 324,
-        urls: {
-          apiURL: "https://block-explorer-api.mainnet.zksync.io/api",
-          browserURL: "https://explorer.zksync.io",
-        },
-      },
-      {
-        network: "zkSyncSepolia",
-        chainId: 300,
-        urls: {
-          apiURL: "https://block-explorer-api.sepolia.zksync.dev/api",
-          browserURL: "https://sepolia.explorer.zksync.io",
-        },
-      },
-      {
-        network: "scrollSepolia",
-        chainId: 534351,
-        urls: {
-          apiURL: "https://api-sepolia.scrollscan.com/api",
-          browserURL: "https://sepolia.scrollscan.com",
-        },
-      },
-      {
-        network: "scroll",
-        chainId: 534352,
-        urls: {
-          apiURL: "https://api.scrollscan.com/api",
-          browserURL: "https://scrollscan.com",
-        },
-      },
-      {
-        network: "lineaSepolia",
-        chainId: 59141,
-        urls: {
-          apiURL: "https://api-sepolia.lineascan.build/api",
-          browserURL: "https://sepolia.lineascan.build",
-        },
-      },
-      {
-        network: "linea",
-        chainId: 59144,
-        urls: {
-          apiURL: "https://api.lineascan.build/api",
-          browserURL: "https://lineascan.build",
-        },
-      },
-    ],
   },
 
   test: {

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "./compat/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -163,7 +163,7 @@ contract Zaseonv2OrchestratorUpgradeable is
     }
 
     /// @notice Initialize the orchestrator
-        /**
+    /**
      * @notice Initializes the operation
      * @param admin The admin bound
      * @param _pc3 The _pc3
@@ -171,7 +171,7 @@ contract Zaseonv2OrchestratorUpgradeable is
      * @param _easc The _easc
      * @param _cdna The _cdna
      */
-function initialize(
+    function initialize(
         address admin,
         address _pc3,
         address _pbp,
@@ -224,12 +224,12 @@ function initialize(
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Execute a private transfer operation
-        /**
+    /**
      * @notice Executes private transfer
      * @param request The request
      * @return result The result
      */
-function executePrivateTransfer(
+    function executePrivateTransfer(
         OperationRequest calldata request
     )
         external
@@ -317,11 +317,11 @@ function executePrivateTransfer(
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Get system status
-        /**
+    /**
      * @notice Returns the system status
      * @return The result value
      */
-function getSystemStatus() external view returns (SystemStatus memory) {
+    function getSystemStatus() external view returns (SystemStatus memory) {
         return
             SystemStatus({
                 pc3Active: primitiveActive[PC3_PRIMITIVE],
@@ -335,24 +335,24 @@ function getSystemStatus() external view returns (SystemStatus memory) {
     }
 
     /// @notice Get operation result
-        /**
+    /**
      * @notice Returns the operation result
      * @param operationId The operationId identifier
      * @return The result value
      */
-function getOperationResult(
+    function getOperationResult(
         bytes32 operationId
     ) external view returns (OperationResult memory) {
         return operationHistory[operationId];
     }
 
     /// @notice Get user operation count
-        /**
+    /**
      * @notice Returns the user operation count
      * @param user The user
      * @return The result value
      */
-function getUserOperationCount(
+    function getUserOperationCount(
         address user
     ) external view returns (uint256) {
         return userOperationCount[user];
@@ -363,12 +363,12 @@ function getUserOperationCount(
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Update a primitive address
-        /**
+    /**
      * @notice Updates primitive
      * @param primitiveId The primitiveId identifier
      * @param newAddress The newAddress address
      */
-function updatePrimitive(
+    function updatePrimitive(
         bytes32 primitiveId,
         address newAddress
     ) external onlyRole(ORCHESTRATOR_ADMIN_ROLE) {
@@ -394,12 +394,12 @@ function updatePrimitive(
     }
 
     /// @notice Set primitive active status
-        /**
+    /**
      * @notice Sets the primitive active
      * @param primitiveId The primitiveId identifier
      * @param active Whether the feature is active
      */
-function setPrimitiveActive(
+    function setPrimitiveActive(
         bytes32 primitiveId,
         bool active
     ) external onlyRole(ORCHESTRATOR_ADMIN_ROLE) {
@@ -407,26 +407,26 @@ function setPrimitiveActive(
         emit PrimitiveStatusChanged(primitiveId, active);
     }
 
-        /**
+    /**
      * @notice Pauses the operation
- */
-function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+     */
+    function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
 
-        /**
+    /**
      * @notice Unpauses the operation
- */
-function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
+     */
+    function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _unpause();
     }
 
     /// @notice Get implementation version
-        /**
+    /**
      * @notice Returns the implementation version
      * @return The result value
      */
-function getImplementationVersion() external pure returns (string memory) {
+    function getImplementationVersion() external pure returns (string memory) {
         return "1.0.0";
     }
 }

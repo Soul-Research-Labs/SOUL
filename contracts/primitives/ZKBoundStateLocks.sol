@@ -15,6 +15,9 @@ import {BN254ScalarField} from "../libraries/BN254ScalarField.sol";
  * @dev Core contract managing zero-knowledge bound state locks for privacy-preserving cross-chain state transitions
  *
  * ARCHITECTURE OVERVIEW:
+ * @dev Encodes values into a BN254 scalar-field-safe packed domain. Domain
+ *      separators are passed as Noir public inputs during registered
+ *      verifier calls, so they must stay below the BN254 field modulus.
  * ZK-Bound State Locks represent a paradigm shift in cross-chain interoperability. Unlike traditional
  * bridges that move assets or messaging layers that move messages, ZK-SLocks enable secure,
  * privacy-preserving movement of CONFIDENTIAL STATE TRANSITIONS across heterogeneous blockchains.
@@ -1284,7 +1287,11 @@ contract ZKBoundStateLocks is AccessControl, ReentrancyGuard, Pausable {
         uint64 appId,
         uint32 epoch
     ) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(chainId, appId, epoch, "ZKSLock"));
+        uint256 result = 0x5A4B534C4F434B455854; // "ZKSLOCKEXT"
+        result |= uint256(chainId) << 176;
+        result |= uint256(appId) << 112;
+        result |= uint256(epoch) << 80;
+        return bytes32(result);
     }
 
     /**

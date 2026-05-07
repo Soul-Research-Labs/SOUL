@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "../upgradeable/compat/ReentrancyGuardUpgradeable.sol";
 import {IProofVerifier} from "../interfaces/IProofVerifier.sol";
 import {IUnifiedNullifierManager} from "../interfaces/IUnifiedNullifierManager.sol";
 

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "./compat/ReentrancyGuardUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
@@ -959,6 +959,9 @@ contract ZKBoundStateLocksUpgradeable is
 
     /**
      * @notice Generates domain separator with extended chain ID support
+     * @dev Encodes values into a BN254 scalar-field-safe packed domain. Domain
+     *      separators are passed as Noir public inputs during registered
+     *      verifier calls, so they must stay below the BN254 field modulus.
      * @param chainId The chain identifier
      * @param appId The appId identifier
      * @param epoch The epoch
@@ -969,7 +972,11 @@ contract ZKBoundStateLocksUpgradeable is
         uint64 appId,
         uint32 epoch
     ) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(chainId, appId, epoch, "ZKSLock"));
+        uint256 result = 0x5A4B534C4F434B455854; // "ZKSLOCKEXT"
+        result |= uint256(chainId) << 176;
+        result |= uint256(appId) << 112;
+        result |= uint256(epoch) << 80;
+        return bytes32(result);
     }
 
     /**
