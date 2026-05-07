@@ -7,6 +7,7 @@ import {
   type Hash,
   type Hex,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 /**
  * ZASEON - Privacy Relayer Client
@@ -101,7 +102,6 @@ export class ZaseonRelayer {
 
     // Create wallet client for transaction signing when private key is provided
     if (config.privateKey) {
-      const { privateKeyToAccount } = require("viem/accounts");
       const account = privateKeyToAccount(config.privateKey);
       this.walletClient = createWalletClient({
         account,

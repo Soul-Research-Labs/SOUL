@@ -11,7 +11,8 @@
 #   scripts/deploy.sh --only core    # Stop after DeployMainnet.s.sol
 #
 # Required env (checked by validate-env.sh before starting):
-#   RPC_URL, PRIVATE_KEY, DEPLOYER, GOVERNOR_MULTISIG, TIMELOCK_DELAY, CHAIN_ID
+#   RPC_URL, DEPLOYER_PRIVATE_KEY (or PRIVATE_KEY alias), DEPLOYER,
+#   GOVERNOR_MULTISIG, TIMELOCK_DELAY, CHAIN_ID
 
 set -euo pipefail
 
@@ -49,6 +50,11 @@ banner "Pre-flight"
 command -v forge >/dev/null || die "forge not in PATH — source Foundry env"
 command -v jq    >/dev/null || die "jq not in PATH — brew install jq"
 
+if [[ -n "${PRIVATE_KEY:-}" && -n "${DEPLOYER_PRIVATE_KEY:-}" && "$PRIVATE_KEY" != "$DEPLOYER_PRIVATE_KEY" ]]; then
+  die "PRIVATE_KEY and DEPLOYER_PRIVATE_KEY are both set but differ"
+fi
+export DEPLOYER_PRIVATE_KEY="${DEPLOYER_PRIVATE_KEY:-${PRIVATE_KEY:-}}"
+
 if [[ "$ENV_MODE" == "mainnet" ]]; then
   [[ -n "${MAINNET_ACK:-}" ]] || die "Refusing to deploy to mainnet without MAINNET_ACK=yes-i-am-sure"
   [[ "$MAINNET_ACK" == "yes-i-am-sure" ]] || die "MAINNET_ACK must equal 'yes-i-am-sure'"
@@ -82,7 +88,7 @@ run_phase() {
   banner "Phase: $name"
   forge script "scripts/deploy/$script" \
     --rpc-url "$RPC_URL" \
-    --private-key "$PRIVATE_KEY" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" \
     $BROADCAST \
     "$@" 2>&1 | tee "/tmp/zaseon-deploy-$name.log"
   jq --arg n "$name" --arg s "$script" '.phases[$n] = {script: $s, status: "ok"}' \

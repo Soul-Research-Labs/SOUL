@@ -728,7 +728,15 @@ contract CrossChainBridgeIntegration is
             abi.encodePacked(
                 "\x19Ethereum Signed Message:\n32",
                 keccak256(
-                    abi.encodePacked(transferId, recipient, token, amount)
+                    abi.encodePacked(
+                        BRIDGE_DOMAIN,
+                        THIS_CHAIN_ID,
+                        address(this),
+                        transferId,
+                        recipient,
+                        token,
+                        amount
+                    )
                 )
             )
         );

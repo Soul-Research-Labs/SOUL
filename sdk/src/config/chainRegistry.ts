@@ -4,6 +4,7 @@
  * Single source of truth for chain metadata. Integrators add a new L2 by
  * dropping an entry into `chains.json` — no code changes required.
  */
+import { keccak256, stringToBytes } from "viem";
 import chainsData from "./chains.json";
 
 export type ChainTier = "mainnet" | "testnet" | "staging" | "local";
@@ -67,8 +68,7 @@ export function rpcUrlFor(slug: string): string | undefined {
  * checksum-losing copy-paste and should never be loaded from a config
  * file used for on-chain routing.
  *
- * Pure-TS implementation (keccak via a small embedded helper) to avoid
- * pulling viem/ethers into this module's import graph.
+ * Uses viem's audited Keccak implementation for the EIP-55 checksum hash.
  */
 export function isChecksumAddress(addr: string): boolean {
   if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return false;
@@ -81,10 +81,10 @@ export function isChecksumAddress(addr: string): boolean {
   return eip55Checksum(lower) === addr;
 }
 
-/** Deterministic EIP-55 checksum using a lightweight keccak256. */
+/** Deterministic EIP-55 checksum using viem's Keccak implementation. */
 function eip55Checksum(lowerAddr: string): string {
   const body = lowerAddr.slice(2);
-  const hash = keccak256Hex(body);
+  const hash = keccak256(stringToBytes(body)).slice(2);
   let out = "0x";
   for (let i = 0; i < body.length; i++) {
     const c = body[i];
@@ -98,132 +98,6 @@ function eip55Checksum(lowerAddr: string): string {
   }
   return out;
 }
-
-// Minimal keccak256 implementation operating on an ASCII string and
-// returning a 64-char lowercase hex string. Adapted from the public-
-// domain SHA3 reference.
-function keccak256Hex(asciiHex: string): string {
-  const bytes = new Uint8Array(asciiHex.length);
-  for (let i = 0; i < asciiHex.length; i++) {
-    bytes[i] = asciiHex.charCodeAt(i);
-  }
-  return keccak256(bytes);
-}
-
-// ---- tiny keccak256 (public-domain port) --------------------------------
-// Intentionally local: avoids SDK consumers paying the cost of a full
-// crypto dep just for a one-shot checksum validator.
-const RC = [
-  0x0000000000000001n,
-  0x0000000000008082n,
-  0x800000000000808an,
-  0x8000000080008000n,
-  0x000000000000808bn,
-  0x0000000080000001n,
-  0x8000000080008081n,
-  0x8000000000008009n,
-  0x000000000000008an,
-  0x0000000000000088n,
-  0x0000000080008009n,
-  0x000000008000000an,
-  0x000000008000808bn,
-  0x800000000000008bn,
-  0x8000000000008089n,
-  0x8000000000008003n,
-  0x8000000000008002n,
-  0x8000000000000080n,
-  0x000000000000800an,
-  0x800000008000000an,
-  0x8000000080008081n,
-  0x8000000000008080n,
-  0x0000000080000001n,
-  0x8000000080008008n,
-];
-const ROTC = [
-  1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14, 27, 41, 56, 8, 25, 43, 62, 18, 39,
-  61, 20, 44,
-];
-const PI = [
-  10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22,
-  9, 6, 1,
-];
-const MASK64 = (1n << 64n) - 1n;
-function rotl64(x: bigint, n: number): bigint {
-  const s = BigInt(n);
-  return ((x << s) | (x >> (64n - s))) & MASK64;
-}
-function keccakF(st: BigUint64Array): void {
-  for (let round = 0; round < 24; round++) {
-    const bc = new BigUint64Array(5);
-    for (let i = 0; i < 5; i++) {
-      bc[i] = st[i] ^ st[i + 5] ^ st[i + 10] ^ st[i + 15] ^ st[i + 20];
-    }
-    for (let i = 0; i < 5; i++) {
-      const t = bc[(i + 4) % 5] ^ rotl64(bc[(i + 1) % 5], 1);
-      for (let j = 0; j < 25; j += 5) st[j + i] = (st[j + i] ^ t) & MASK64;
-    }
-    let t = st[1];
-    for (let i = 0; i < 24; i++) {
-      const j = PI[i];
-      const tmp = st[j];
-      st[j] = rotl64(t, ROTC[i]);
-      t = tmp;
-    }
-    for (let j = 0; j < 25; j += 5) {
-      const a0 = st[j],
-        a1 = st[j + 1],
-        a2 = st[j + 2],
-        a3 = st[j + 3],
-        a4 = st[j + 4];
-      st[j] = (a0 ^ (~a1 & a2)) & MASK64;
-      st[j + 1] = (a1 ^ (~a2 & a3)) & MASK64;
-      st[j + 2] = (a2 ^ (~a3 & a4)) & MASK64;
-      st[j + 3] = (a3 ^ (~a4 & a0)) & MASK64;
-      st[j + 4] = (a4 ^ (~a0 & a1)) & MASK64;
-    }
-    st[0] = (st[0] ^ RC[round]) & MASK64;
-  }
-}
-function keccak256(data: Uint8Array): string {
-  const rate = 136;
-  const st = new BigUint64Array(25);
-  const buf = new Uint8Array(rate);
-  buf.set(data.subarray(0, Math.min(data.length, rate)));
-  let off = 0;
-  let rem = data.length;
-  while (rem >= rate) {
-    for (let i = 0; i < rate / 8; i++) {
-      let w = 0n;
-      for (let b = 0; b < 8; b++) {
-        w |= BigInt(data[off + i * 8 + b]) << BigInt(8 * b);
-      }
-      st[i] ^= w;
-    }
-    keccakF(st);
-    off += rate;
-    rem -= rate;
-  }
-  const tail = new Uint8Array(rate);
-  tail.set(data.subarray(off));
-  tail[rem] = 0x01;
-  tail[rate - 1] |= 0x80;
-  for (let i = 0; i < rate / 8; i++) {
-    let w = 0n;
-    for (let b = 0; b < 8; b++) w |= BigInt(tail[i * 8 + b]) << BigInt(8 * b);
-    st[i] ^= w;
-  }
-  keccakF(st);
-  let out = "";
-  for (let i = 0; i < 4; i++) {
-    const w = st[i];
-    for (let b = 0; b < 8; b++) {
-      const byte = Number((w >> BigInt(8 * b)) & 0xffn);
-      out += byte.toString(16).padStart(2, "0");
-    }
-  }
-  return out;
-}
-// -------------------------------------------------------------------------
 
 /**
  * Validate every address in the registry. Call once at SDK init to

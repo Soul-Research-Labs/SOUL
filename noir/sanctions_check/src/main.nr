@@ -24,6 +24,16 @@ fn hash2(left: Field, right: Field) -> Field {
     bn254::hash_2([left, right])
 }
 
+fn to_bounded_u64(value: Field) -> u64 {
+    let narrowed = value as u64;
+    assert(narrowed as Field == value, "Field exceeds u64");
+    narrowed
+}
+
+fn derive_issuer_pubkey(issuer_secret: Field) -> Field {
+    bn254::hash_1([issuer_secret])
+}
+
 /// Verify a Merkle proof (membership/non-membership)
 /// Returns the computed root from the leaf + proof path
 fn compute_merkle_root(
@@ -74,7 +84,8 @@ fn main(
 
     // Credential data
     credential_hash: Field,              // Hash of the compliance credential
-    credential_secret: Field,            // Credential signing secret
+    credential_issuer_secret: Field,     // Issuer secret proving authorization for this credential
+    credential_issued_at: Field,         // Credential issuance timestamp
     credential_expiry: Field             // Credential expiration timestamp
 ) {
     // -- Step 1: Verify identity commitment --
@@ -97,29 +108,75 @@ fn main(
     assert(computed_root == sanctions_merkle_root);
 
     // -- Step 4: Verify compliance credential --
-    // Credential commitment = Poseidon(credential_hash, credential_secret, issuer_pubkey)
-    let credential_commitment = bn254::hash_4([
-        credential_hash,
-        credential_secret,
-        credential_issuer_pubkey,
-        0
+    // The credential statement is bound to the identity, issuer, and validity
+    // window. Requiring the issuer secret to derive the public key prevents a
+    // prover from fabricating arbitrary credential_hash values. Production
+    // issuers should migrate this relation to a real signature verification
+    // gadget or issuer-controlled credential Merkle root.
+    assert(derive_issuer_pubkey(credential_issuer_secret) == credential_issuer_pubkey, "Credential issuer mismatch");
+    let expected_credential_hash = bn254::hash_4([
+        address_hash,
+        credential_issued_at,
+        credential_expiry,
+        credential_issuer_pubkey
     ]);
-    // The credential must be bound to this identity
-    let identity_binding = bn254::hash_2([credential_commitment, address_hash]);
-    // Verify credential is non-trivial (not zero)
-    assert(identity_binding != 0);
+    assert(credential_hash == expected_credential_hash, "Credential hash mismatch");
 
     // -- Step 5: Verify temporal validity --
-    // Credential must not be expired
-    // In Noir, we compare field elements as integers
-    let expiry_u64 = credential_expiry as u64;
-    let current_u64 = current_timestamp as u64;
-    assert(expiry_u64 > current_u64);
+    // Credential must have been issued and must not be expired.
+    let issued_u64 = to_bounded_u64(credential_issued_at);
+    let expiry_u64 = to_bounded_u64(credential_expiry);
+    let current_u64 = to_bounded_u64(current_timestamp);
+    assert(issued_u64 <= current_u64, "Credential issued in future");
+    assert(expiry_u64 > current_u64, "Credential expired");
 }
 
 // ==================================================
 // Tests
 // ==================================================
+
+fn run_sanctions_main(
+    credential_issuer_secret: Field,
+    credential_issuer_pubkey: Field,
+    credential_issued_at: Field,
+    credential_expiry: Field,
+    current_timestamp: Field
+) {
+    let address_hash: Field = 0xabcdef;
+    let secret: Field = 54321;
+    let nullifier_secret: Field = 11111;
+    let neighbor_leaf: Field = 0x123456;
+    let neighbor_index: Field = 0;
+    let neighbor_path: [Field; 16] = [0; 16];
+    let sanctions_merkle_root = compute_merkle_root(neighbor_leaf, neighbor_index, neighbor_path);
+    let identity_commitment = bn254::hash_2([address_hash, secret]);
+    let domain_separator: Field = 0x73616e6374696f6e735f636865636b;
+    let compliance_nullifier = bn254::hash_4([address_hash, nullifier_secret, domain_separator, 0]);
+    let credential_hash = bn254::hash_4([
+        address_hash,
+        credential_issued_at,
+        credential_expiry,
+        credential_issuer_pubkey
+    ]);
+
+    main(
+        sanctions_merkle_root,
+        identity_commitment,
+        compliance_nullifier,
+        credential_issuer_pubkey,
+        current_timestamp,
+        address_hash,
+        secret,
+        nullifier_secret,
+        neighbor_leaf,
+        neighbor_index,
+        neighbor_path,
+        credential_hash,
+        credential_issuer_secret,
+        credential_issued_at,
+        credential_expiry
+    );
+}
 
 #[test]
 fn test_identity_commitment() {
@@ -185,20 +242,47 @@ fn test_non_membership_check() {
 
 #[test]
 fn test_credential_commitment() {
-    let credential_hash: Field = 0xaaaa;
-    let credential_secret: Field = 0xbbbb;
-    let issuer_pubkey: Field = 0xcccc;
-
-    let credential_commitment = bn254::hash_4([
-        credential_hash,
-        credential_secret,
-        issuer_pubkey,
-        0
-    ]);
-    assert(credential_commitment != 0);
-
-    // Binding to identity
     let address_hash: Field = 0xdddd;
-    let identity_binding = bn254::hash_2([credential_commitment, address_hash]);
-    assert(identity_binding != 0);
+    let credential_issued_at: Field = 1700000000;
+    let credential_expiry: Field = 1800000000;
+    let issuer_secret: Field = 0xbbbb;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+
+    let credential_hash = bn254::hash_4([
+        address_hash,
+        credential_issued_at,
+        credential_expiry,
+        issuer_pubkey,
+    ]);
+    assert(credential_hash != 0);
+    assert(derive_issuer_pubkey(issuer_secret) == issuer_pubkey);
+}
+
+#[test]
+fn test_valid_sanctions_main() {
+    let issuer_secret: Field = 0xbbbb;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_sanctions_main(issuer_secret, issuer_pubkey, 1700000000, 1700100000, 1700050000);
+}
+
+#[test(should_fail_with = "Credential issuer mismatch")]
+fn test_forged_credential_issuer_rejected() {
+    let issuer_secret: Field = 0xbbbb;
+    let forged_secret: Field = 0xcccc;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_sanctions_main(forged_secret, issuer_pubkey, 1700000000, 1700100000, 1700050000);
+}
+
+#[test(should_fail_with = "Credential issued in future")]
+fn test_future_credential_rejected() {
+    let issuer_secret: Field = 0xbbbb;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_sanctions_main(issuer_secret, issuer_pubkey, 1700060000, 1700100000, 1700050000);
+}
+
+#[test(should_fail_with = "Credential expired")]
+fn test_expired_credential_rejected() {
+    let issuer_secret: Field = 0xbbbb;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_sanctions_main(issuer_secret, issuer_pubkey, 1700000000, 1700050000, 1700050000);
 }

@@ -132,12 +132,34 @@ function bigintToBytes(value: bigint, size: number): Uint8Array {
   return bytes;
 }
 
-function bytesToBigint(bytes: Uint8Array): bigint {
-  let hex = "0x";
-  for (const b of bytes) {
-    hex += b.toString(16).padStart(2, "0");
+function assertFieldElement(
+  value: bigint,
+  modulus: bigint,
+  label: string,
+): bigint {
+  if (value < 0n || value >= modulus) {
+    throw new Error(`${label} is outside the target curve field`);
   }
-  return BigInt(hex);
+  return value;
+}
+
+function parseFieldElement(
+  value: string,
+  modulus: bigint,
+  label: string,
+): bigint {
+  return assertFieldElement(BigInt(value), modulus, label);
+}
+
+function bytesToBigint(
+  bytes: Uint8Array,
+  modulus: bigint,
+  label: string,
+): bigint {
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return assertFieldElement(BigInt(`0x${hex || "0"}`), modulus, label);
 }
 
 function bigintToHex(value: bigint): string {
@@ -202,21 +224,29 @@ export interface SnarkjsFormattedProof {
  */
 export function parseSnarkjsProof(proof: SnarkjsRawProof): Groth16Proof {
   // snarkjs format: pi_a = [x, y, "1"], pi_b = [[x0, x1], [y0, y1], ["1","0"]], pi_c = [x, y, "1"]
+  const curve = (proof.curve as CurveType) || "bn254";
+  const modulus = CURVE_PARAMS[curve].baseFieldModulus;
   return {
     pi_a: {
-      x: BigInt(proof.pi_a[0]),
-      y: BigInt(proof.pi_a[1]),
+      x: parseFieldElement(proof.pi_a[0], modulus, "pi_a.x"),
+      y: parseFieldElement(proof.pi_a[1], modulus, "pi_a.y"),
     },
     pi_b: {
-      x: [BigInt(proof.pi_b[0][0]), BigInt(proof.pi_b[0][1])],
-      y: [BigInt(proof.pi_b[1][0]), BigInt(proof.pi_b[1][1])],
+      x: [
+        parseFieldElement(proof.pi_b[0][0], modulus, "pi_b.x[0]"),
+        parseFieldElement(proof.pi_b[0][1], modulus, "pi_b.x[1]"),
+      ],
+      y: [
+        parseFieldElement(proof.pi_b[1][0], modulus, "pi_b.y[0]"),
+        parseFieldElement(proof.pi_b[1][1], modulus, "pi_b.y[1]"),
+      ],
     },
     pi_c: {
-      x: BigInt(proof.pi_c[0]),
-      y: BigInt(proof.pi_c[1]),
+      x: parseFieldElement(proof.pi_c[0], modulus, "pi_c.x"),
+      y: parseFieldElement(proof.pi_c[1], modulus, "pi_c.y"),
     },
     protocol: proof.protocol || "groth16",
-    curve: (proof.curve as CurveType) || "bn254",
+    curve,
   };
 }
 
@@ -225,17 +255,33 @@ export function parseSnarkjsProof(proof: SnarkjsRawProof): Groth16Proof {
  */
 export function parseGnarkProof(proofJson: GnarkRawProof): Groth16Proof {
   // gnark format uses Ar, Bs, Krs naming and hex strings
-  const parseG1 = (p: RawPoint): G1Point => ({
-    x: BigInt(String(p.X || p.x || p[0])),
-    y: BigInt(String(p.Y || p.y || p[1])),
-  });
+  const curve = (proofJson.curve as CurveType) || "bn254";
+  const modulus = CURVE_PARAMS[curve].baseFieldModulus;
+
+  const parseG1 = (p: RawPoint): G1Point => {
+    const x = p.X ?? p.x ?? p[0];
+    const y = p.Y ?? p.y ?? p[1];
+    if (Array.isArray(x) || Array.isArray(y)) {
+      throw new Error("Invalid G1 point encoding");
+    }
+    return {
+      x: parseFieldElement(x || "0", modulus, "G1.x"),
+      y: parseFieldElement(y || "0", modulus, "G1.y"),
+    };
+  };
 
   const parseG2 = (p: RawPoint): G2Point => {
     if (p.X && Array.isArray(p.X)) {
       const yArr = p.Y as string[];
       return {
-        x: [BigInt(p.X[0]), BigInt(p.X[1])],
-        y: [BigInt(yArr[0]), BigInt(yArr[1])],
+        x: [
+          parseFieldElement(p.X[0], modulus, "G2.x[0]"),
+          parseFieldElement(p.X[1], modulus, "G2.x[1]"),
+        ],
+        y: [
+          parseFieldElement(yArr[0], modulus, "G2.y[0]"),
+          parseFieldElement(yArr[1], modulus, "G2.y[1]"),
+        ],
       };
     }
     const xArr = p.x as string[] | undefined;
@@ -244,12 +290,12 @@ export function parseGnarkProof(proofJson: GnarkRawProof): Groth16Proof {
     const p1 = p[1] as string[] | undefined;
     return {
       x: [
-        BigInt(xArr?.[0] || p0?.[0] || "0"),
-        BigInt(xArr?.[1] || p0?.[1] || "0"),
+        parseFieldElement(xArr?.[0] || p0?.[0] || "0", modulus, "G2.x[0]"),
+        parseFieldElement(xArr?.[1] || p0?.[1] || "0", modulus, "G2.x[1]"),
       ],
       y: [
-        BigInt(yArr?.[0] || p1?.[0] || "0"),
-        BigInt(yArr?.[1] || p1?.[1] || "0"),
+        parseFieldElement(yArr?.[0] || p1?.[0] || "0", modulus, "G2.y[0]"),
+        parseFieldElement(yArr?.[1] || p1?.[1] || "0", modulus, "G2.y[1]"),
       ],
     };
   };
@@ -266,7 +312,7 @@ export function parseGnarkProof(proofJson: GnarkRawProof): Groth16Proof {
     pi_b: parseG2(pi_b_raw),
     pi_c: parseG1(pi_c_raw),
     protocol: "groth16",
-    curve: (proofJson.curve as CurveType) || "bn254",
+    curve,
   };
 }
 
@@ -279,29 +325,62 @@ export function parseArkworksProof(
 ): Groth16Proof {
   const params = CURVE_PARAMS[curve];
   const coordSize = params.g1Size / 2;
+  const modulus = params.baseFieldModulus;
 
   let offset = 0;
 
   // G1 point pi_a: x, y
-  const pi_a_x = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_a_x = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_a.x",
+  );
   offset += coordSize;
-  const pi_a_y = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_a_y = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_a.y",
+  );
   offset += coordSize;
 
   // G2 point pi_b: x0, x1, y0, y1
-  const pi_b_x0 = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_b_x0 = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_b.x[0]",
+  );
   offset += coordSize;
-  const pi_b_x1 = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_b_x1 = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_b.x[1]",
+  );
   offset += coordSize;
-  const pi_b_y0 = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_b_y0 = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_b.y[0]",
+  );
   offset += coordSize;
-  const pi_b_y1 = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_b_y1 = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_b.y[1]",
+  );
   offset += coordSize;
 
   // G1 point pi_c: x, y
-  const pi_c_x = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_c_x = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_c.x",
+  );
   offset += coordSize;
-  const pi_c_y = bytesToBigint(proofBytes.slice(offset, offset + coordSize));
+  const pi_c_y = bytesToBigint(
+    proofBytes.slice(offset, offset + coordSize),
+    modulus,
+    "pi_c.y",
+  );
 
   return {
     pi_a: { x: pi_a_x, y: pi_a_y },
@@ -487,8 +566,8 @@ export function translateForChain(
     };
   }
 
-  // Cross-curve translation requires re-proving — return as-is with flag
-  // In production, this would invoke a re-proving service
+  // Cross-curve translation requires re-proving — return as-is with flag.
+  // In production, this would invoke a re-proving service.
   const proofBytes =
     targetCurve === "bn254" ? toBytesBN254(proof) : toBytesBLS12381(proof);
 

@@ -90,7 +90,7 @@ fn verify_constant_product(pool: PoolState) -> bool {
     let new_k = pool.new_reserve_in * pool.new_reserve_out;
     
     // New K should be >= old K (fees increase K)
-    new_k as u126 >= old_k as u126
+    new_k as u128 >= old_k as u128
 }
 
 /// Verify reserve updates are correct
@@ -116,7 +116,7 @@ fn verify_amm_output(
     let denominator = reserve_in * 10000 + fee_adjusted;
     
     // amountOut * denominator <= numerator (accounting for integer division)
-    (amount_out * denominator) as u126 <= numerator as u126
+    (amount_out * denominator) as u128 <= numerator as u128
 }
 
 /// Verify slippage protection

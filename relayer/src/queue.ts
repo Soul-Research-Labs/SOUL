@@ -159,8 +159,10 @@ export class ProofQueue {
       return false;
     }
 
-    this.queue.push(task);
+    // Mark the id before mutating queue state so same-tick concurrent callers
+    // cannot both observe the id as unseen and enqueue duplicate relays.
     this.queuedTaskIds.add(task.id);
+    this.queue.push(task);
     logger.debug(
       { taskId: task.id, queueSize: this.queue.length },
       "Task enqueued",

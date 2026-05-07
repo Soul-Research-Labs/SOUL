@@ -23,6 +23,12 @@ CONTRACTS_DIR="$PROJECT_ROOT/contracts"
 
 CRS_PATH="${CRS_PATH:-$HOME/.bb/crs}"
 
+DEPLOYER_PRIVATE_KEY="${E2E_ZK_DEPLOYER_PRIVATE_KEY:-${PRIVATE_KEY:-}}"
+
+random_hex32() {
+  od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+}
+
 echo "=================================================="
 echo "ZASEON - E2E ZK Proof Verification"
 echo "=================================================="
@@ -42,14 +48,18 @@ echo "  Done."
 echo ""
 echo "Step 2: Creating test inputs..."
 
-cat > Prover.toml << 'EOF'
+SECRET_HEX="${E2E_ZK_SECRET:-$(random_hex32)}"
+NONCE_HEX="${E2E_ZK_NONCE:-$(random_hex32)}"
+COMMITMENT_HEX="${E2E_ZK_COMMITMENT:-$(random_hex32)}"
+
+cat > Prover.toml << EOF
 # Nullifier circuit test inputs
 # The circuit proves knowledge of a secret that produces a given nullifier
 
 # Private inputs
-secret = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-nonce = "0x0000000000000000000000000000000000000000000000000000000000000001"
-commitment = "0x0000000000000000000000000000000000000000000000000000000000000000"
+secret = "0x$SECRET_HEX"
+nonce = "0x$NONCE_HEX"
+commitment = "0x$COMMITMENT_HEX"
 domain_id = "0x0000000000000000000000000000000000000000000000000000000000000001"
 chain_id = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
@@ -114,6 +124,11 @@ fi
 echo ""
 echo "Step 5: On-chain verification..."
 if [ -f "$NOIR_DIR/target/proof" ] && [ -f "$NOIR_DIR/target/public_inputs_fields.json" ]; then
+  if [ -z "$DEPLOYER_PRIVATE_KEY" ]; then
+    echo "  ERROR: E2E_ZK_DEPLOYER_PRIVATE_KEY or PRIVATE_KEY must be set to deploy the verifier"
+    exit 1
+  fi
+
   PROOF_HEX=$(cat "$NOIR_DIR/target/proof" | od -An -v -t x1 | tr -d ' \n')
   PUBLIC_INPUTS=$(cat "$NOIR_DIR/target/public_inputs_fields.json")
   
@@ -129,7 +144,7 @@ if [ -f "$NOIR_DIR/target/proof" ] && [ -f "$NOIR_DIR/target/public_inputs_field
   cd "$PROJECT_ROOT"
   DEPLOY_INFO=$($FORGE create NullifierVerifier \
     --rpc-url "127.0.0.1:8545" \
-    --private-key "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" \
     --broadcast \
     --json 2>/dev/null)
   VERIFIER_ADDRESS=$(echo $DEPLOY_INFO | jq -r '.deployedTo')

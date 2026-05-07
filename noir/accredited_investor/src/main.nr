@@ -26,6 +26,16 @@ global INCOME_INDIVIDUAL_THRESHOLD: u64 = 20_000_000; // $200,000
 global INCOME_JOINT_THRESHOLD: u64 = 30_000_000;      // $300,000
 global ENTITY_ASSET_THRESHOLD: u64 = 500_000_000;     // $5,000,000
 
+fn to_bounded_u64(value: Field) -> u64 {
+    let narrowed = value as u64;
+    assert(narrowed as Field == value, "Field exceeds u64");
+    narrowed
+}
+
+fn derive_issuer_pubkey(issuer_secret: Field) -> Field {
+    bn254::hash_1([issuer_secret])
+}
+
 fn main(
     // -- Public inputs --
     identity_commitment: pub Field,      // Poseidon(address_hash, secret)
@@ -39,11 +49,11 @@ fn main(
     secret: Field,                       // User's secret for commitment
     nullifier_secret: Field,             // For deriving the nullifier
 
-    // Financial attestation data (signed by issuer)
+    // Financial attestation data (authorized by issuer)
     attested_value: Field,               // The attested financial value (in cents)
     attestation_timestamp: Field,        // When the attestation was issued
     attestation_expiry: Field,           // When the attestation expires
-    attestation_secret: Field,           // Issuer's attestation signing secret
+    attestation_secret: Field,           // Issuer secret for this attestation
     attestation_type: Field,             // Type of attestation (matches qualification_path)
 
     // Professional certification (only for PATH_PROFESSIONAL)
@@ -59,27 +69,31 @@ fn main(
     let computed_nullifier = bn254::hash_4([address_hash, nullifier_secret, domain_separator, 0]);
     assert(computed_nullifier == qualification_nullifier);
 
-    // -- Step 3: Verify attestation is properly signed --
+    // -- Step 3: Verify attestation is issuer-authorized --
+    // This prevents arbitrary prover-chosen attestations by requiring the
+    // witness secret to derive the public issuer key. Production deployments
+    // should replace this relation with a real issuer signature verification
+    // gadget or an issuer-controlled attestation root.
+    assert(derive_issuer_pubkey(attestation_secret) == issuer_pubkey, "Issuer mismatch");
     let attestation_commitment = bn254::hash_4([
         attested_value,
         attestation_timestamp,
         attestation_secret,
         attestation_type
     ]);
-    // Bind attestation to issuer
-    let issuer_binding = bn254::hash_2([attestation_commitment, issuer_pubkey]);
-    assert(issuer_binding != 0);
 
     // -- Step 4: Verify attestation type matches qualification path --
     assert(attestation_type == qualification_path);
 
     // -- Step 5: Verify temporal validity --
-    let expiry_u64 = attestation_expiry as u64;
-    let current_u64 = current_timestamp as u64;
-    assert(expiry_u64 > current_u64);
+    let issued_u64 = to_bounded_u64(attestation_timestamp);
+    let expiry_u64 = to_bounded_u64(attestation_expiry);
+    let current_u64 = to_bounded_u64(current_timestamp);
+    assert(issued_u64 <= current_u64, "Attestation issued in future");
+    assert(expiry_u64 > current_u64, "Attestation expired");
 
     // -- Step 6: Verify financial threshold based on path --
-    let value_u64 = attested_value as u64;
+    let value_u64 = to_bounded_u64(attested_value);
 
     if qualification_path == PATH_NET_WORTH {
         assert(value_u64 >= NET_WORTH_THRESHOLD);
@@ -109,6 +123,41 @@ fn main(
 // ==================================================
 // Tests
 // ==================================================
+
+fn run_accredited_main(
+    attestation_secret: Field,
+    issuer_pubkey: Field,
+    attestation_timestamp: Field,
+    attestation_expiry: Field,
+    current_timestamp: Field,
+    attested_value: Field,
+    qualification_path: Field
+) {
+    let address_hash: Field = 0xabcdef;
+    let secret: Field = 12345;
+    let nullifier_secret: Field = 67890;
+    let identity_commitment = bn254::hash_2([address_hash, secret]);
+    let domain_separator: Field = 0x6163637265646974656420696e76;
+    let qualification_nullifier = bn254::hash_4([address_hash, nullifier_secret, domain_separator, 0]);
+
+    main(
+        identity_commitment,
+        qualification_nullifier,
+        issuer_pubkey,
+        qualification_path,
+        current_timestamp,
+        address_hash,
+        secret,
+        nullifier_secret,
+        attested_value,
+        attestation_timestamp,
+        attestation_expiry,
+        attestation_secret,
+        qualification_path,
+        1,
+        1
+    );
+}
 
 #[test]
 fn test_identity_commitment() {
@@ -149,6 +198,7 @@ fn test_attestation_commitment() {
     let attestation_timestamp: Field = 1700000000;
     let attestation_secret: Field = 42;
     let attestation_type: Field = PATH_NET_WORTH;
+    let issuer_pubkey = derive_issuer_pubkey(attestation_secret);
 
     let commitment = bn254::hash_4([
         attested_value,
@@ -157,6 +207,7 @@ fn test_attestation_commitment() {
         attestation_type
     ]);
     assert(commitment != 0);
+    assert(derive_issuer_pubkey(attestation_secret) == issuer_pubkey);
 }
 
 #[test]
@@ -185,4 +236,65 @@ fn test_income_thresholds() {
 fn test_entity_threshold() {
     let entity_assets: u64 = ENTITY_ASSET_THRESHOLD + 100;
     assert(entity_assets >= ENTITY_ASSET_THRESHOLD);
+}
+
+#[test]
+fn test_valid_accredited_main() {
+    let issuer_secret: Field = 42;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_accredited_main(
+        issuer_secret,
+        issuer_pubkey,
+        1700000000,
+        1700100000,
+        1700050000,
+        150_000_000,
+        PATH_NET_WORTH
+    );
+}
+
+#[test(should_fail_with = "Issuer mismatch")]
+fn test_forged_accredited_issuer_rejected() {
+    let issuer_secret: Field = 42;
+    let forged_secret: Field = 43;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_accredited_main(
+        forged_secret,
+        issuer_pubkey,
+        1700000000,
+        1700100000,
+        1700050000,
+        150_000_000,
+        PATH_NET_WORTH
+    );
+}
+
+#[test(should_fail_with = "Attestation issued in future")]
+fn test_future_accredited_attestation_rejected() {
+    let issuer_secret: Field = 42;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_accredited_main(
+        issuer_secret,
+        issuer_pubkey,
+        1700060000,
+        1700100000,
+        1700050000,
+        150_000_000,
+        PATH_NET_WORTH
+    );
+}
+
+#[test(should_fail_with = "Attestation expired")]
+fn test_expired_accredited_attestation_rejected() {
+    let issuer_secret: Field = 42;
+    let issuer_pubkey = derive_issuer_pubkey(issuer_secret);
+    run_accredited_main(
+        issuer_secret,
+        issuer_pubkey,
+        1700000000,
+        1700050000,
+        1700050000,
+        150_000_000,
+        PATH_NET_WORTH
+    );
 }

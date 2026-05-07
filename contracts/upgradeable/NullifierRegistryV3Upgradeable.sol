@@ -301,6 +301,7 @@ contract NullifierRegistryV3Upgradeable is
         bytes32 sourceMerkleRoot
     ) external onlyRole(BRIDGE_ROLE) whenNotPaused nonReentrant {
         if (sourceChainId_ == chainId) revert InvalidChainId();
+        if (sourceChainId_ > type(uint64).max) revert ChainIdExceedsUint64();
 
         uint256 len = _nullifiers.length;
         if (len == 0) revert EmptyBatch();

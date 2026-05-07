@@ -111,6 +111,31 @@ contract CrossChainBridgeIntegrationTest is Test {
         );
     }
 
+    function _completionMessageHash(
+        bytes32 transferId,
+        bytes32 recipient,
+        address bridgeToken,
+        uint256 amount
+    ) internal view returns (bytes32) {
+        return
+            keccak256(
+                abi.encodePacked(
+                    "\x19Ethereum Signed Message:\n32",
+                    keccak256(
+                        abi.encodePacked(
+                            bridge.BRIDGE_DOMAIN(),
+                            bridge.THIS_CHAIN_ID(),
+                            address(bridge),
+                            transferId,
+                            recipient,
+                            bridgeToken,
+                            amount
+                        )
+                    )
+                )
+            );
+    }
+
     // ============= Constructor =============
 
     function test_Constructor_SetsChainId() public view {
@@ -495,34 +520,18 @@ contract CrossChainBridgeIntegrationTest is Test {
         bytes32 recipient = bytes32(uint256(uint160(user)));
         uint256 amount = 1 ether;
 
-        // Create valid signature from relayer
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(transferId, recipient, NATIVE, amount)
-                )
-            )
-        );
-
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(
-            uint256(uint160(relayer)),
-            messageHash
-        );
         // Need a proper private key. Use vm.addr pattern
         uint256 relayerPk = 0xBEEF;
         address relayerAddr = vm.addr(relayerPk);
         bridge.grantRole(bridge.RELAYER_ROLE(), relayerAddr);
 
-        messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(transferId, recipient, NATIVE, amount)
-                )
-            )
+        bytes32 messageHash = _completionMessageHash(
+            transferId,
+            recipient,
+            NATIVE,
+            amount
         );
-        (v, r, s) = vm.sign(relayerPk, messageHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(relayerPk, messageHash);
         bytes memory proof = abi.encodePacked(r, s, v);
 
         uint256 userBalBefore = user.balance;
@@ -541,13 +550,11 @@ contract CrossChainBridgeIntegrationTest is Test {
         address relayerAddr = vm.addr(relayerPk);
         bridge.grantRole(bridge.RELAYER_ROLE(), relayerAddr);
 
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(transferId, recipient, NATIVE, amount)
-                )
-            )
+        bytes32 messageHash = _completionMessageHash(
+            transferId,
+            recipient,
+            NATIVE,
+            amount
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(relayerPk, messageHash);
         bytes memory proof = abi.encodePacked(r, s, v);
@@ -569,18 +576,11 @@ contract CrossChainBridgeIntegrationTest is Test {
         // Sign with non-relayer key
         uint256 nonRelayerPk = 0xDEAD;
 
-        bytes32 messageHash = keccak256(
-            abi.encodePacked(
-                "\x19Ethereum Signed Message:\n32",
-                keccak256(
-                    abi.encodePacked(
-                        transferId,
-                        recipient,
-                        NATIVE,
-                        uint256(1 ether)
-                    )
-                )
-            )
+        bytes32 messageHash = _completionMessageHash(
+            transferId,
+            recipient,
+            NATIVE,
+            1 ether
         );
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(nonRelayerPk, messageHash);
         bytes memory proof = abi.encodePacked(r, s, v);
@@ -588,6 +588,31 @@ contract CrossChainBridgeIntegrationTest is Test {
         vm.prank(relayer);
         vm.expectRevert(CrossChainBridgeIntegration.InvalidProof.selector);
         bridge.completeTransfer(transferId, recipient, NATIVE, 1 ether, proof);
+    }
+
+    function test_CompleteTransfer_RevertLegacySignatureWithoutDomain() public {
+        bytes32 transferId = keccak256("transfer1");
+        bytes32 recipient = bytes32(uint256(uint160(user)));
+        uint256 amount = 1 ether;
+
+        uint256 relayerPk = 0xBEEF;
+        address relayerAddr = vm.addr(relayerPk);
+        bridge.grantRole(bridge.RELAYER_ROLE(), relayerAddr);
+
+        bytes32 legacyHash = keccak256(
+            abi.encodePacked(
+                "\x19Ethereum Signed Message:\n32",
+                keccak256(
+                    abi.encodePacked(transferId, recipient, NATIVE, amount)
+                )
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(relayerPk, legacyHash);
+        bytes memory proof = abi.encodePacked(r, s, v);
+
+        vm.prank(relayerAddr);
+        vm.expectRevert(CrossChainBridgeIntegration.InvalidProof.selector);
+        bridge.completeTransfer(transferId, recipient, NATIVE, amount, proof);
     }
 
     // ============= Quote =============

@@ -104,7 +104,7 @@ fn main(
     verify_proof_with_type(vk_0, proof_0, pub_inputs_0, key_hash_0, PROOF_TYPE_HONK);
 
     // SECURITY (H-21): Conditional verification left unused proof slots
-    // unconstrained — a malicious prover could stuff arbitrary data into
+    // unconstrained - a malicious prover could stuff arbitrary data into
     // the inactive `vk_N`/`proof_N`/`pub_inputs_N`/`key_hash_N` fields and
     // still produce a valid aggregator proof. Constrain unused slots to
     // zero (or an equality-with-slot-0 canonicalization) so the witness

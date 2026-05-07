@@ -271,6 +271,26 @@ contract NullifierRegistryV3UpgradeableTest is Test {
         );
     }
 
+    function test_ReceiveCrossChainNullifiers_RevertChainIdExceedsUint64()
+        public
+    {
+        bytes32[] memory nullifiers = new bytes32[](1);
+        nullifiers[0] = NULLIFIER_1;
+        bytes32[] memory commitments = new bytes32[](1);
+        commitments[0] = COMMITMENT_1;
+
+        vm.prank(bridgeRole);
+        vm.expectRevert(
+            NullifierRegistryV3Upgradeable.ChainIdExceedsUint64.selector
+        );
+        registry.receiveCrossChainNullifiers(
+            uint256(type(uint64).max) + 1,
+            nullifiers,
+            commitments,
+            bytes32(0)
+        );
+    }
+
     /*//////////////////////////////////////////////////////////////
                            VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

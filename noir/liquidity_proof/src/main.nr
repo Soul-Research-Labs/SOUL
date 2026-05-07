@@ -29,6 +29,8 @@ use poseidon::poseidon::bn254;
 // --- Constants --------------------------------------------------------
 
 global FEE_DENOMINATOR: Field = 10000; // Basis points denominator
+global FEE_DENOMINATOR_U64: u64 = 10000;
+global MAX_TIMESTAMP_DRIFT: u64 = 2592000; // 30 days
 
 // --- Structs ----------------------------------------------------------
 
@@ -115,6 +117,15 @@ fn verify_fee_deduction(
     lhs == rhs
 }
 
+/// Constrain a field witness to be exactly representable as a u64 before using
+/// integer ordering. This prevents field wraparound from satisfying timestamp,
+/// amount, and liquidity comparisons.
+fn to_bounded_u64(value: Field) -> u64 {
+    let narrowed = value as u64;
+    assert(narrowed as Field == value, "Field exceeds u64");
+    narrowed
+}
+
 // --- Main circuit -----------------------------------------------------
 
 /// Main entry point for the liquidity proof circuit
@@ -161,40 +172,32 @@ fn main(
     );
     assert(computed_nullifier == nullifier, "Nullifier mismatch");
 
+    let lock_amount_u64 = to_bounded_u64(lock.amount);
+    let lock_timestamp_u64 = to_bounded_u64(lock.lock_timestamp);
+    let expiry_u64 = to_bounded_u64(lock.expiry);
+    let current_u64 = to_bounded_u64(ctx.current_timestamp);
+    let timestamp_bound_u64 = to_bounded_u64(timestamp_bound);
+    let total_deposited_u64 = to_bounded_u64(pool.total_deposited);
+    let total_locked_u64 = to_bounded_u64(pool.total_locked);
+    let fee_bps_u64 = to_bounded_u64(pool.fee_bps);
+    let net_amount_u64 = to_bounded_u64(net_amount);
+
     // -- 4. Verify lock has not expired -------------------------
-    // We use field comparison: current_timestamp < expiry
-    // Since these are timestamps (< 2^64), field arithmetic is safe
-    assert(ctx.current_timestamp != lock.expiry, "Lock expired (equal)");
-    // Verify timestamp_bound is consistent with prover's timestamp
+    assert(lock_amount_u64 > 0, "Lock amount must be non-zero");
+    assert(net_amount_u64 > 0, "Transfer amount must be non-zero");
+    assert(lock_timestamp_u64 <= current_u64, "Lock timestamp in future");
+    assert(expiry_u64 > current_u64, "Lock expired");
+    assert(expiry_u64 - current_u64 <= MAX_TIMESTAMP_DRIFT, "Expiry too far");
+    assert(timestamp_bound_u64 == current_u64, "Timestamp bound mismatch");
     assert(ctx.current_timestamp == timestamp_bound, "Timestamp bound mismatch");
-    // For expiry: prover attests lock.expiry > current_timestamp
-    // On-chain verifier checks timestamp_bound against block.timestamp
-    // This is a range proof approximation using field subtraction:
-    let time_remaining = lock.expiry - ctx.current_timestamp;
-    // time_remaining must be positive (i.e., lock not expired)
-    // We constrain it to be less than a max duration (e.g., 30 days = 2592000)
-    // This prevents wraparound in the field
-    let max_duration: Field = 2592000; // 30 days in seconds
-    let remaining_check = max_duration - time_remaining;
-    // Both time_remaining and remaining_check should be "small" positive values
-    // This is verified by range-checking them against the max
-    assert(time_remaining != 0, "Lock has zero time remaining");
-    // Note: Full range proof would use bit decomposition; simplified here
 
     // -- 5. Verify sufficient destination liquidity -------------
-    // available = total_deposited - total_locked
-    let available = pool.total_deposited - pool.total_locked;
-    // available >= net_amount  --  available - net_amount >= 0
-    let surplus = available - net_amount;
-    // Constrain surplus is small (not wrapped around the field)
-    // surplus should be less than total_deposited (sanity bound)
-    // This is a simplified sufficiency check
-    let surplus_check = pool.total_deposited - surplus;
-    assert(surplus_check != 0, "Insufficient destination liquidity");
-    // Additional: net_amount must be positive
-    assert(net_amount != 0, "Transfer amount must be non-zero");
+    assert(total_deposited_u64 >= total_locked_u64, "Pool overlocked");
+    let available_u64 = total_deposited_u64 - total_locked_u64;
+    assert(available_u64 >= net_amount_u64, "Insufficient destination liquidity");
 
     // -- 6. Verify fee deduction is correct ---------------------
+    assert(fee_bps_u64 <= FEE_DENOMINATOR_U64, "Fee bps exceeds denominator");
     let fee_valid = verify_fee_deduction(lock.amount, net_amount, pool.fee_bps);
     assert(fee_valid, "Fee deduction invalid");
 
@@ -204,9 +207,6 @@ fn main(
 
     // -- 8. Cross-chain sanity: source != destination -----------
     assert(lock.source_chain_id != lock.dest_chain_id, "Source and destination must differ");
-
-    // -- 9. Amount sanity: lock amount > 0 ----------------------
-    assert(lock.amount != 0, "Lock amount must be non-zero");
 }
 
 // --- Test module ------------------------------------------------------
@@ -389,5 +389,134 @@ fn test_zero_amount_rejected() {
         pool,
         ctx,
         0 // Zero amount - should fail
+    );
+}
+
+#[test(should_fail_with = "Fee bps exceeds denominator")]
+fn test_fee_bps_above_denominator_rejected() {
+    let lock = LockWitness {
+        request_id: 77,
+        token: 1,
+        amount: 1000,
+        source_chain_id: 1,
+        dest_chain_id: 42161,
+        lock_timestamp: 1700000000,
+        expiry: 1700100100,
+        salt: 77777,
+    };
+
+    let pool = PoolWitness {
+        total_deposited: 50000,
+        total_locked: 0,
+        fee_bps: 10001,
+        pool_salt: 77778,
+    };
+
+    let ctx = ProverContext {
+        relayer_secret: 333,
+        current_timestamp: 1700100000,
+    };
+
+    let expected_lock_commitment = compute_lock_commitment(lock);
+    let expected_pool_commitment = compute_pool_commitment(pool);
+    let expected_nullifier = derive_release_nullifier(333, 77, 42161);
+    let expected_amount_hash = bn254::hash_1([1000]);
+
+    main(
+        expected_lock_commitment,
+        expected_pool_commitment,
+        expected_nullifier,
+        expected_amount_hash,
+        1700100000,
+        lock,
+        pool,
+        ctx,
+        1000
+    );
+}
+
+#[test(should_fail_with = "Lock expired")]
+fn test_expired_lock_rejected() {
+    let lock = LockWitness {
+        request_id: 66,
+        token: 1,
+        amount: 1000,
+        source_chain_id: 1,
+        dest_chain_id: 42161,
+        lock_timestamp: 1700000000,
+        expiry: 1700100000,
+        salt: 66666,
+    };
+
+    let pool = PoolWitness {
+        total_deposited: 50000,
+        total_locked: 0,
+        fee_bps: 0,
+        pool_salt: 66667,
+    };
+
+    let ctx = ProverContext {
+        relayer_secret: 444,
+        current_timestamp: 1700100000,
+    };
+
+    let expected_lock_commitment = compute_lock_commitment(lock);
+    let expected_pool_commitment = compute_pool_commitment(pool);
+    let expected_nullifier = derive_release_nullifier(444, 66, 42161);
+    let expected_amount_hash = bn254::hash_1([1000]);
+
+    main(
+        expected_lock_commitment,
+        expected_pool_commitment,
+        expected_nullifier,
+        expected_amount_hash,
+        1700100000,
+        lock,
+        pool,
+        ctx,
+        1000
+    );
+}
+
+#[test(should_fail_with = "Insufficient destination liquidity")]
+fn test_insufficient_liquidity_rejected() {
+    let lock = LockWitness {
+        request_id: 55,
+        token: 1,
+        amount: 600,
+        source_chain_id: 1,
+        dest_chain_id: 42161,
+        lock_timestamp: 1700000000,
+        expiry: 1700100100,
+        salt: 55555,
+    };
+
+    let pool = PoolWitness {
+        total_deposited: 1000,
+        total_locked: 500,
+        fee_bps: 0,
+        pool_salt: 55556,
+    };
+
+    let ctx = ProverContext {
+        relayer_secret: 555,
+        current_timestamp: 1700100000,
+    };
+
+    let expected_lock_commitment = compute_lock_commitment(lock);
+    let expected_pool_commitment = compute_pool_commitment(pool);
+    let expected_nullifier = derive_release_nullifier(555, 55, 42161);
+    let expected_amount_hash = bn254::hash_1([600]);
+
+    main(
+        expected_lock_commitment,
+        expected_pool_commitment,
+        expected_nullifier,
+        expected_amount_hash,
+        1700100000,
+        lock,
+        pool,
+        ctx,
+        600
     );
 }

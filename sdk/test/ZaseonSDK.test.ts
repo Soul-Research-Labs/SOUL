@@ -1,3 +1,5 @@
+/// <reference types="mocha" />
+
 import { expect } from "chai";
 import {
   ProverModule,
@@ -63,8 +65,40 @@ function makePacket(overrides?: Partial<RelayerPacket>): RelayerPacket {
     proof: makeProof(),
     sourceChain: "ethereum",
     destChain: "arbitrum",
+    stateRoot: "0x" + "11".repeat(32),
     timestamp: Date.now(),
     ...overrides,
+  };
+}
+
+class MockWebSocket {
+  static instances: MockWebSocket[] = [];
+
+  onmessage?: (event: { data: string }) => void;
+  onerror?: () => void;
+  closed = false;
+
+  constructor(public url: string) {
+    MockWebSocket.instances.push(this);
+  }
+
+  emit(data: unknown): void {
+    this.onmessage?.({
+      data: typeof data === "string" ? data : JSON.stringify(data),
+    });
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+}
+
+function installMockWebSocket(): () => void {
+  const original = (globalThis as any).WebSocket;
+  MockWebSocket.instances = [];
+  (globalThis as any).WebSocket = MockWebSocket as any;
+  return () => {
+    (globalThis as any).WebSocket = original;
   };
 }
 
@@ -79,7 +113,7 @@ const defaultOpts: RelayerOptions = {
 // ============================================================
 
 describe("ProverModule", () => {
-  const PROVER_URL = "http://localhost:3001";
+  const PROVER_URL = "https://prover.example.com";
 
   describe("generateProof()", () => {
     it("should POST to /prove and return proof + publicInputs", async () => {
@@ -87,7 +121,7 @@ describe("ProverModule", () => {
         {
           ok: true,
           status: 200,
-          body: { proof: "aabb", publicInputs: "ccdd" },
+          body: { proof: "aa".repeat(32), publicInputs: "cc".repeat(32) },
         },
       ]);
       const restore = installFetch(fakeFetch);
@@ -97,8 +131,8 @@ describe("ProverModule", () => {
 
         expect(result.proof).to.be.instanceOf(Buffer);
         expect(result.publicInputs).to.be.instanceOf(Buffer);
-        expect(result.proof.toString("hex")).to.equal("aabb");
-        expect(result.publicInputs.toString("hex")).to.equal("ccdd");
+        expect(result.proof.toString("hex")).to.equal("aa".repeat(32));
+        expect(result.publicInputs.toString("hex")).to.equal("cc".repeat(32));
         expect(calls[0].url).to.equal(`${PROVER_URL}/prove`);
 
         const body = JSON.parse(calls[0].init.body as string);
@@ -139,7 +173,7 @@ describe("ProverModule", () => {
         {
           ok: true,
           status: 200,
-          body: { proof: "aa", publicInputs: "bb" },
+          body: { proof: "aa".repeat(32), publicInputs: "bb".repeat(32) },
         },
       ]);
       const restore = installFetch(fakeFetch);
@@ -245,7 +279,7 @@ describe("ProverModule", () => {
 // ============================================================
 
 describe("RelayerClient", () => {
-  const RELAYER_URL = "http://localhost:4000";
+  const RELAYER_URL = "https://relayer.example.com";
 
   describe("send()", () => {
     it("should POST packet to /relay and return receipt", async () => {
@@ -370,13 +404,84 @@ describe("RelayerClient", () => {
     });
 
     it("should return a subscription with unsubscribe()", async () => {
-      // WebSocket is not available in test env, but subscribe still returns a handle
-      const relayer = new RelayerClient(RELAYER_URL);
-      const sub = await relayer.subscribe("42161", () => {});
-      expect(sub).to.have.property("unsubscribe");
-      expect(typeof sub.unsubscribe).to.equal("function");
-      // Should not throw on unsubscribe
-      sub.unsubscribe();
+      const restore = installMockWebSocket();
+      try {
+        const relayer = new RelayerClient(RELAYER_URL);
+        const sub = await relayer.subscribe("42161", () => {});
+        expect(sub).to.have.property("unsubscribe");
+        expect(typeof sub.unsubscribe).to.equal("function");
+        expect(MockWebSocket.instances[0].url).to.equal(
+          "wss://relayer.example.com/subscribe/42161",
+        );
+
+        sub.unsubscribe();
+        expect(MockWebSocket.instances[0].closed).to.be.true;
+      } finally {
+        restore();
+      }
+    });
+
+    it("should validate WebSocket packets before invoking callback", async () => {
+      const restore = installMockWebSocket();
+      try {
+        const relayer = new RelayerClient(RELAYER_URL);
+        const received: RelayerPacket[] = [];
+        const sub = await relayer.subscribe("42161", (packet) => {
+          received.push(packet);
+        });
+
+        MockWebSocket.instances[0].emit({
+          encryptedState: "0xaabb",
+          ephemeralKey: "0xccdd",
+          mac: "0xeeff",
+          proof: { proof: "0x1122", publicInputs: "0x3344" },
+          sourceChain: "ethereum",
+          destChain: "arbitrum",
+          stateRoot: "0x" + "22".repeat(32),
+          timestamp: 123,
+        });
+
+        expect(received).to.have.length(1);
+        expect(received[0].encryptedState.toString("hex")).to.equal("aabb");
+        expect(received[0].proof.publicInputs.toString("hex")).to.equal("3344");
+
+        sub.unsubscribe();
+      } finally {
+        restore();
+      }
+    });
+
+    it("should skip malformed WebSocket packets without invoking callback", async () => {
+      const restoreWebSocket = installMockWebSocket();
+      const originalWarn = console.warn;
+      const warnings: unknown[][] = [];
+      console.warn = (...args: unknown[]) => {
+        warnings.push(args);
+      };
+
+      try {
+        const relayer = new RelayerClient(RELAYER_URL);
+        let callbacks = 0;
+        const sub = await relayer.subscribe("42161", () => {
+          callbacks += 1;
+        });
+
+        MockWebSocket.instances[0].emit({
+          encryptedState: "zz-not-hex",
+          proof: { proof: "1122", publicInputs: "3344" },
+          sourceChain: "ethereum",
+          destChain: "arbitrum",
+          stateRoot: "0x" + "22".repeat(32),
+          timestamp: 123,
+        });
+
+        expect(callbacks).to.equal(0);
+        expect(warnings[0][0]).to.equal("Malformed relayer packet skipped:");
+        sub.unsubscribe();
+      } finally {
+        console.warn = originalWarn;
+        restoreWebSocket();
+      }
     });
   });
 });
@@ -388,8 +493,8 @@ describe("RelayerClient", () => {
 describe("ZaseonSDK", () => {
   const config: ZaseonConfig = {
     curve: "secp256k1",
-    relayerEndpoint: "http://localhost:4000",
-    proverUrl: "http://localhost:3001",
+    relayerEndpoint: "https://relayer.example.com",
+    proverUrl: "https://prover.example.com",
     privateKey: "0x" + "ab".repeat(32),
   };
 
@@ -407,7 +512,11 @@ describe("ZaseonSDK", () => {
       // public key. We verify the prover is called by checking fetch.
       const { fakeFetch, calls } = mockFetch([
         // generateProof call
-        { ok: true, status: 200, body: { proof: "aa", publicInputs: "bb" } },
+        {
+          ok: true,
+          status: 200,
+          body: { proof: "aa".repeat(32), publicInputs: "bb".repeat(32) },
+        },
         // relayer.send call (won't be reached due to crypto error, but here for completeness)
         { ok: true, status: 200, body: { txHash: "0xresult", status: "sent" } },
       ]);
@@ -428,9 +537,11 @@ describe("ZaseonSDK", () => {
         await sdk.sendPrivateState({
           sourceChain: "ethereum",
           destChain: "not-a-valid-ec-pubkey",
+          recipientPublicKey: "not-a-valid-ec-pubkey",
           payload: { x: 1 },
           circuitId: "membership",
           disclosurePolicy: {},
+          stateRoot: "0x" + "11".repeat(32),
         });
         expect.fail("Should have thrown");
       } catch (e: any) {
@@ -442,10 +553,15 @@ describe("ZaseonSDK", () => {
 
   describe("receivePrivateState()", () => {
     it("should return subscription handle", async () => {
-      const sdk = new ZaseonSDK(config);
-      const sub = await sdk.receivePrivateState("42161", () => {});
-      expect(sub).to.have.property("unsubscribe");
-      sub.unsubscribe();
+      const restore = installMockWebSocket();
+      try {
+        const sdk = new ZaseonSDK(config);
+        const sub = await sdk.receivePrivateState("42161", () => {});
+        expect(sub).to.have.property("unsubscribe");
+        sub.unsubscribe();
+      } finally {
+        restore();
+      }
     });
   });
 });

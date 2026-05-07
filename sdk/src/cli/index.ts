@@ -89,6 +89,17 @@ function saveConfig(config: ZaseonConfig): void {
   });
 }
 
+function isPrivateKey(value: string): value is Hex {
+  return /^0x[0-9a-fA-F]{64}$/.test(value);
+}
+
+function redactConfig(config: ZaseonConfig): ZaseonConfig {
+  return {
+    ...config,
+    privateKey: config.privateKey ? "[REDACTED]" : undefined,
+  };
+}
+
 // ============================================
 // Helper Functions
 // ============================================
@@ -133,7 +144,7 @@ function getWalletClient(network: string): WalletClient {
   }
 
   throw new Error(
-    "No private key configured. Run `zaseon config set-key <key>`",
+    "No private key configured. Use PRIVATE_KEY/DEPLOYER_PRIVATE_KEY or `zaseon config set-key <key> --unsafe-plaintext` for local development.",
   );
 }
 
@@ -167,7 +178,7 @@ configCmd
   .description("Show current configuration")
   .action(() => {
     const config = loadConfig();
-    console.log(JSON.stringify(config, null, 2));
+    console.log(JSON.stringify(redactConfig(config), null, 2));
   });
 
 configCmd
@@ -182,12 +193,27 @@ configCmd
 
 configCmd
   .command("set-key <privateKey>")
-  .description("Set private key (CAUTION: stored in plaintext)")
-  .action((privateKey: string) => {
+  .description(
+    "Set private key (unsafe plaintext storage; prefer env vars or OS keychain)",
+  )
+  .option(
+    "--unsafe-plaintext",
+    "Acknowledge that the private key will be stored in ~/.zaseon/config.json",
+  )
+  .action((privateKey: string, options: { unsafePlaintext?: boolean }) => {
+    if (!options.unsafePlaintext) {
+      throw new Error(
+        "Refusing to store a private key in plaintext. Use PRIVATE_KEY/DEPLOYER_PRIVATE_KEY env vars, " +
+          "or pass --unsafe-plaintext for local development only.",
+      );
+    }
+    if (!isPrivateKey(privateKey)) {
+      throw new Error("Private key must be a 0x-prefixed 32-byte hex string");
+    }
     const config = loadConfig();
     config.privateKey = privateKey;
     saveConfig(config);
-    console.log("✓ Private key saved");
+    console.log("✓ Private key saved to plaintext config (unsafe local mode)");
   });
 
 configCmd

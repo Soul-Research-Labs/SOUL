@@ -1,4 +1,4 @@
-import { defineConfig } from "hardhat/config";
+import { configVariable, defineConfig } from "hardhat/config";
 import hardhatMocha from "@nomicfoundation/hardhat-mocha";
 import hardhatViem from "@nomicfoundation/hardhat-viem";
 import hardhatFoundry from "@nomicfoundation/hardhat-foundry";
@@ -9,8 +9,10 @@ import * as dotenv from "dotenv";
 dotenv.config({ quiet: true } as any);
 
 const PRIVATE_KEY =
-  process.env.PRIVATE_KEY ||
-  "0x0000000000000000000000000000000000000000000000000000000000000000";
+  process.env.PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY || "";
+const NETWORK_ACCOUNTS = PRIVATE_KEY ? [PRIVATE_KEY] : "remote";
+const ALLOW_PUBLIC_RPC_FALLBACKS =
+  process.env.ZASEON_ALLOW_PUBLIC_RPC_FALLBACKS === "true";
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "";
 const POLYGONSCAN_API_KEY = process.env.POLYGONSCAN_API_KEY || "";
 const ARBISCAN_API_KEY = process.env.ARBISCAN_API_KEY || "";
@@ -18,6 +20,13 @@ const BASESCAN_API_KEY = process.env.BASESCAN_API_KEY || "";
 const OPTIMISM_API_KEY = process.env.OPTIMISM_API_KEY || "";
 const SCROLLSCAN_API_KEY = process.env.SCROLLSCAN_API_KEY || "";
 const LINEASCAN_API_KEY = process.env.LINEASCAN_API_KEY || "";
+
+function rpcUrl(envName: string, publicFallback: string) {
+  const configured = process.env[envName];
+  if (configured && configured.trim() !== "") return configured;
+  if (ALLOW_PUBLIC_RPC_FALLBACKS) return publicFallback;
+  return configVariable(envName);
+}
 
 export default defineConfig({
   plugins: [hardhatMocha, hardhatViem, hardhatFoundry],
@@ -119,6 +128,22 @@ export default defineConfig({
           evmVersion: "cancun",
         },
       },
+      "contracts/verifiers/generated/SanctionsCheckVerifier.sol": {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: false,
+          evmVersion: "cancun",
+        },
+      },
+      "contracts/verifiers/generated/AccreditedInvestorVerifier.sol": {
+        version: "0.8.24",
+        settings: {
+          optimizer: { enabled: true, runs: 1 },
+          viaIR: false,
+          evmVersion: "cancun",
+        },
+      },
       // Security module inherited by many contracts
       "contracts/security/SecurityModule.sol": {
         version: "0.8.24",
@@ -183,130 +208,129 @@ export default defineConfig({
     // Testnets
     sepolia: {
       type: "http",
-      url: process.env.SEPOLIA_RPC_URL || "https://rpc.sepolia.org",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("SEPOLIA_RPC_URL", "https://rpc.sepolia.org"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 11155111,
     },
     arbitrumSepolia: {
       type: "http",
-      url:
-        process.env.ARBITRUM_SEPOLIA_RPC_URL ||
+      url: rpcUrl(
+        "ARBITRUM_SEPOLIA_RPC_URL",
         "https://sepolia-rollup.arbitrum.io/rpc",
-      accounts: [PRIVATE_KEY],
+      ),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 421614,
     },
     baseSepolia: {
       type: "http",
-      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 84532,
     },
     optimismSepolia: {
       type: "http",
-      url:
-        process.env.OPTIMISM_SEPOLIA_RPC_URL || "https://sepolia.optimism.io",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("OPTIMISM_SEPOLIA_RPC_URL", "https://sepolia.optimism.io"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 11155420,
     },
     polygonAmoy: {
       type: "http",
-      url:
-        process.env.POLYGON_AMOY_RPC_URL ||
+      url: rpcUrl(
+        "POLYGON_AMOY_RPC_URL",
         "https://rpc-amoy.polygon.technology",
-      accounts: [PRIVATE_KEY],
+      ),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 80002,
     },
 
     // Mainnets
     mainnet: {
       type: "http",
-      url: process.env.MAINNET_RPC_URL || "https://eth.llamarpc.com",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("MAINNET_RPC_URL", "https://eth.llamarpc.com"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 1,
     },
     polygon: {
       type: "http",
-      url: process.env.POLYGON_RPC_URL || "https://polygon-rpc.com",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("POLYGON_RPC_URL", "https://polygon-rpc.com"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 137,
     },
     arbitrum: {
       type: "http",
-      url: process.env.ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("ARBITRUM_RPC_URL", "https://arb1.arbitrum.io/rpc"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 42161,
     },
     base: {
       type: "http",
-      url: process.env.BASE_RPC_URL || "https://mainnet.base.org",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("BASE_RPC_URL", "https://mainnet.base.org"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 8453,
     },
     optimism: {
       type: "http",
-      url: process.env.OPTIMISM_RPC_URL || "https://mainnet.optimism.io",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("OPTIMISM_RPC_URL", "https://mainnet.optimism.io"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 10,
     },
 
     // zkSync Era
     zkSync: {
       type: "http",
-      url: process.env.ZKSYNC_RPC_URL || "https://mainnet.era.zksync.io",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("ZKSYNC_RPC_URL", "https://mainnet.era.zksync.io"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 324,
     },
     zkSyncSepolia: {
       type: "http",
-      url:
-        process.env.ZKSYNC_SEPOLIA_RPC_URL || "https://sepolia.era.zksync.dev",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("ZKSYNC_SEPOLIA_RPC_URL", "https://sepolia.era.zksync.dev"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 300,
     },
 
     // Scroll
     scroll: {
       type: "http",
-      url: process.env.SCROLL_RPC_URL || "https://rpc.scroll.io",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("SCROLL_RPC_URL", "https://rpc.scroll.io"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 534352,
     },
     scrollSepolia: {
       type: "http",
-      url:
-        process.env.SCROLL_SEPOLIA_RPC_URL || "https://sepolia-rpc.scroll.io",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("SCROLL_SEPOLIA_RPC_URL", "https://sepolia-rpc.scroll.io"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 534351,
     },
 
     // Linea
     linea: {
       type: "http",
-      url: process.env.LINEA_RPC_URL || "https://rpc.linea.build",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("LINEA_RPC_URL", "https://rpc.linea.build"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 59144,
     },
     lineaSepolia: {
       type: "http",
-      url:
-        process.env.LINEA_SEPOLIA_RPC_URL || "https://rpc.sepolia.linea.build",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("LINEA_SEPOLIA_RPC_URL", "https://rpc.sepolia.linea.build"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 59141,
     },
 
     // Polygon zkEVM
     polygonZkEVM: {
       type: "http",
-      url: process.env.POLYGON_ZKEVM_RPC_URL || "https://zkevm-rpc.com",
-      accounts: [PRIVATE_KEY],
+      url: rpcUrl("POLYGON_ZKEVM_RPC_URL", "https://zkevm-rpc.com"),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 1101,
     },
     polygonZkEVMTestnet: {
       type: "http",
-      url:
-        process.env.POLYGON_ZKEVM_TESTNET_RPC_URL ||
+      url: rpcUrl(
+        "POLYGON_ZKEVM_TESTNET_RPC_URL",
         "https://rpc.cardona.zkevm-rpc.com",
-      accounts: [PRIVATE_KEY],
+      ),
+      accounts: NETWORK_ACCOUNTS,
       chainId: 2442,
     },
   },

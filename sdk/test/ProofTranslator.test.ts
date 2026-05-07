@@ -62,6 +62,18 @@ function makeBLS12Proof(): Groth16Proof {
   };
 }
 
+function writeBigInt(
+  bytes: Uint8Array,
+  offset: number,
+  size: number,
+  value: bigint,
+): void {
+  const hex = value.toString(16).padStart(size * 2, "0");
+  for (let i = 0; i < size; i++) {
+    bytes[offset + i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -189,6 +201,15 @@ describe("ProofTranslator", () => {
       const proof = parseArkworksProof(bytes, "bls12-381");
       expect(proof.pi_a.x).to.equal(42n);
       expect(proof.curve).to.equal("bls12-381");
+    });
+
+    it("should reject coordinates outside the target curve field", () => {
+      const bytes = new Uint8Array(256);
+      writeBigInt(bytes, 0, 32, CURVE_PARAMS.bn254.baseFieldModulus);
+
+      expect(() => parseArkworksProof(bytes, "bn254")).to.throw(
+        "pi_a.x is outside the target curve field",
+      );
     });
   });
 

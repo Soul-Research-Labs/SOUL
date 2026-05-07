@@ -62,6 +62,99 @@ function validateExternalUrl(url: string, label: string): void {
   }
 }
 
+const LONG_HEX = /0x?[0-9a-fA-F]{64,}/g;
+const HEX_BYTES = /^[0-9a-fA-F]+$/;
+
+function sanitizeErrorMessage(message: string): string {
+  return message.replace(
+    LONG_HEX,
+    (match) =>
+      `[redacted:${Math.floor(match.replace(/^0x/, "").length / 2)} bytes]`,
+  );
+}
+
+function requireHexString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ZaseonError(
+      `Malformed relayer packet: ${field} must be non-empty hex`,
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+  const normalized = value.startsWith("0x") ? value.slice(2) : value;
+  if (normalized.length === 0 || !HEX_BYTES.test(normalized)) {
+    throw new ZaseonError(
+      `Malformed relayer packet: ${field} must be non-empty hex`,
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+  if (normalized.length % 2 !== 0) {
+    throw new ZaseonError(
+      `Malformed relayer packet: ${field} must have even hex length`,
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+  return normalized;
+}
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new ZaseonError(
+      `Malformed relayer packet: ${field} must be a non-empty string`,
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+  return value;
+}
+
+function parseRelayerPacket(raw: unknown): RelayerPacket {
+  if (!raw || typeof raw !== "object") {
+    throw new ZaseonError(
+      "Malformed relayer packet: expected object",
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+
+  const record = raw as Record<string, unknown>;
+  const proof = record.proof as Record<string, unknown> | undefined;
+  if (!proof || typeof proof !== "object") {
+    throw new ZaseonError(
+      "Malformed relayer packet: proof object required",
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+
+  const timestamp = record.timestamp;
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) {
+    throw new ZaseonError(
+      "Malformed relayer packet: timestamp must be finite number",
+      ZaseonErrorCode.SCHEMA_VALIDATION_FAILED,
+    );
+  }
+
+  return {
+    encryptedState: Buffer.from(
+      requireHexString(record.encryptedState, "encryptedState"),
+      "hex",
+    ),
+    ephemeralKey: Buffer.from(
+      requireHexString(record.ephemeralKey, "ephemeralKey"),
+      "hex",
+    ),
+    mac: Buffer.from(requireHexString(record.mac, "mac"), "hex"),
+    proof: {
+      proof: Buffer.from(requireHexString(proof.proof, "proof.proof"), "hex"),
+      publicInputs: Buffer.from(
+        requireHexString(proof.publicInputs, "proof.publicInputs"),
+        "hex",
+      ),
+    },
+    sourceChain: requireString(record.sourceChain, "sourceChain"),
+    destChain: requireString(record.destChain, "destChain"),
+    stateRoot: requireString(record.stateRoot, "stateRoot"),
+    timestamp,
+  };
+}
+
 /** Proof generation result */
 export interface ProofResult {
   proof: Buffer;
@@ -189,7 +282,7 @@ export class ProverModule {
         onRetry: (error, attempt, delay) => {
           console.warn(
             `Proof generation failed (attempt ${attempt}), retrying in ${delay}ms:`,
-            error.message,
+            sanitizeErrorMessage(error.message),
           );
           retryOptions?.onRetry?.(error, attempt, delay);
         },
@@ -326,7 +419,7 @@ export class RelayerClient {
         onRetry: (error, attempt, delay) => {
           console.warn(
             `Relay failed (attempt ${attempt}), retrying in ${delay}ms:`,
-            error.message,
+            sanitizeErrorMessage(error.message),
           );
           retryOptions?.onRetry?.(error, attempt, delay);
         },
@@ -362,22 +455,15 @@ export class RelayerClient {
       ws.onmessage = (event: MessageEvent) => {
         try {
           const raw = JSON.parse(String(event.data));
-          const packet: RelayerPacket = {
-            encryptedState: Buffer.from(raw.encryptedState, "hex"),
-            ephemeralKey: Buffer.from(raw.ephemeralKey, "hex"),
-            mac: Buffer.from(raw.mac, "hex"),
-            proof: {
-              proof: Buffer.from(raw.proof.proof, "hex"),
-              publicInputs: Buffer.from(raw.proof.publicInputs, "hex"),
-            },
-            sourceChain: raw.sourceChain,
-            destChain: raw.destChain,
-            stateRoot: raw.stateRoot,
-            timestamp: raw.timestamp,
-          };
+          const packet = parseRelayerPacket(raw);
           callback(packet);
-        } catch {
-          // Skip malformed messages
+        } catch (err) {
+          console.warn(
+            "Malformed relayer packet skipped:",
+            sanitizeErrorMessage(
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
         }
       };
 

@@ -172,7 +172,7 @@ fn test_cross_chain_proof() {
     
     let proof_commitment = compute_proof_commitment(source);
     
-    // Should not panic — all assertions pass
+    // Should not panic - all assertions pass
     let _hash = verify_cross_chain_proof(source, dest, relayer_secret, proof_commitment);
 }
 

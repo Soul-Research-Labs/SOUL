@@ -51,8 +51,9 @@ declare -A CHAIN_IDS=(
     ["base"]=8453
 )
 
-# Default test private key (Anvil default #0)
-PRIVATE_KEY="${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}"
+# Optional deployer key. Signing commands require callers to set PRIVATE_KEY
+# explicitly; never fall back to a known public Anvil key.
+PRIVATE_KEY="${PRIVATE_KEY:-}"
 
 # ==============================================================================
 # Utility Functions
@@ -72,6 +73,14 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}✗${NC} $1"
+}
+
+require_private_key() {
+    if [ -z "${PRIVATE_KEY:-}" ]; then
+        log_error "PRIVATE_KEY is required for this command"
+        log_info "For local-only Anvil simulation, explicitly export a funded local key before running."
+        exit 1
+    fi
 }
 
 log_header() {
@@ -273,6 +282,7 @@ cmd_status() {
 
 cmd_deploy() {
     log_header "Deploying Zaseon Contracts"
+    require_private_key
     
     check_dependencies
     
@@ -321,6 +331,7 @@ cmd_deploy() {
 
 cmd_test() {
     log_header "Running Cross-Chain Integration Tests"
+    require_private_key
     
     cd "$PROJECT_ROOT"
     
@@ -436,6 +447,7 @@ cmd_clean() {
 cmd_shell() {
     local chain="${1:-ethereum}"
     local rpc=${CHAIN_RPCS[$chain]}
+    require_private_key
     
     log_info "Starting interactive shell for $chain"
     log_info "RPC: $rpc"
